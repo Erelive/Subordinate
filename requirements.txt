@@ -1,0 +1,20 @@
+# Audio capture (WASAPI loopback fork of PyAudio)
+PyAudioWPatch==0.2.12.7
+
+# ASR: CTranslate2 backend, bundles a Silero VAD ONNX model
+faster-whisper==1.2.0
+# faster-whisper 1.2.0 imports requests but does not declare it
+requests==2.32.5
+
+# CUDA runtime libraries CTranslate2 links against on Windows.
+# Without these, GPU inference fails with "Library cublas64_12.dll is not found".
+nvidia-cublas-cu12==12.6.4.1
+nvidia-cudnn-cu12==9.6.0.74
+
+# High-quality resampling, 48 kHz device rate -> 16 kHz model rate
+soxr==0.5.0.post1
+
+numpy==2.2.1
+
+# Overlay window
+PyQt6==6.8.0
