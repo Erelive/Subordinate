@@ -10,19 +10,30 @@ param(
     [int]$WarmupSec = 45,
     [int]$SpeakWaitSec = 7,
     [double]$StripFraction = 0.25,
-    [string]$OutFile = "overlay_test.png"
+    [string]$OutFile = "overlay_test.png",
+    # Point these at dist\SubOrdinant\SubOrdinant.exe to test the built bundle
+    # instead of the source tree.
+    [string]$Exe = ".venv\Scripts\python.exe",
+    # One string rather than an array: this script is usually invoked through
+    # cmd.exe, which mangles array-valued arguments.
+    [string]$LaunchArgs = "-u main.py --verbose"
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-Write-Host "launching overlay..."
-$app = Start-Process -FilePath ".venv\Scripts\python.exe" `
-    -ArgumentList "-u", "main.py", "--verbose" `
-    -RedirectStandardOutput "overlay_test.log" `
-    -RedirectStandardError "overlay_test.err.log" `
-    -PassThru -WindowStyle Hidden
+Write-Host "launching overlay: $Exe $LaunchArgs"
+$startArgs = @{
+    FilePath               = $Exe
+    RedirectStandardOutput = "overlay_test.log"
+    RedirectStandardError  = "overlay_test.err.log"
+    PassThru               = $true
+    WindowStyle            = "Hidden"
+}
+$argList = $LaunchArgs.Split(" ", [StringSplitOptions]::RemoveEmptyEntries)
+if ($argList.Count -gt 0) { $startArgs.ArgumentList = $argList }
+$app = Start-Process @startArgs
 
 try {
     Write-Host "waiting ${WarmupSec}s for model load and warmup..."

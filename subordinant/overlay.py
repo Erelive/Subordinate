@@ -22,6 +22,8 @@ from PyQt6.QtGui import (
     QPainter,
     QPainterPath,
     QPixmap,
+    QTextBlockFormat,
+    QTextCursor,
     QTextDocument,
 )
 from PyQt6.QtWidgets import QWidget
@@ -32,6 +34,7 @@ log = logging.getLogger(__name__)
 
 PADDING = 18
 RADIUS = 12
+LINE_HEIGHT_PCT = 125
 
 
 def _parse_rgba(value: str) -> QColor:
@@ -120,9 +123,19 @@ class CaptionOverlay(QWidget):
                 f'<span style="color:{self.cfg.unstable_color}">'
                 f"{html.escape(unstable)}</span>"
             )
-        self._doc.setHtml(
-            '<div style="line-height:130%">' + " ".join(pieces) + "</div>"
+        # Zero margins: QTextDocument's default paragraph margins otherwise leave
+        # a band of dead space under the last line. Line spacing is applied
+        # through QTextBlockFormat rather than CSS - Qt's rich text does not read
+        # a CSS line-height the way a browser does, and setting it there produces
+        # wildly wrong block heights.
+        self._doc.setHtml('<p style="margin:0">' + " ".join(pieces) + "</p>")
+        cursor = QTextCursor(self._doc)
+        cursor.select(QTextCursor.SelectionType.Document)
+        block = QTextBlockFormat()
+        block.setLineHeight(
+            LINE_HEIGHT_PCT, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value
         )
+        cursor.mergeBlockFormat(block)
         self._relayout()
         if not self.isVisible():
             self.show()
@@ -146,7 +159,9 @@ class CaptionOverlay(QWidget):
         size = self._doc.size()
 
         width = int(text_width) + 2 * PADDING
-        height = int(size.height()) + 2 * PADDING
+        # Never let a layout mistake push the box past the screen; a caption that
+        # is clipped at the bottom is still readable, one drawn off-screen is not.
+        height = min(int(size.height()) + 2 * PADDING, area.height())
         x = area.x() + (area.width() - width) // 2
         y = area.y() + area.height() - height - int(area.height() * self.cfg.bottom_margin_frac)
         log.debug(

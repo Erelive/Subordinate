@@ -11,11 +11,27 @@
 # looks for exactly that tree under sys._MEIPASS to register the DLL
 # directories at startup.
 
+import os
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 SITE_PACKAGES = Path(SPECPATH) / ".venv" / "Lib" / "site-packages"
+SYSTEM32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+
+# PyQt6 vendors an MSVC runtime from 2019 (14.26) in PyQt6\Qt6\bin and adds that
+# directory to the DLL search path. CTranslate2 is linked against a newer one and
+# faults on model construction if it binds to Qt's copy. Keeping exactly one
+# build - the system's - is what stops that, so every copy is dropped from the
+# bundle below and replaced with the System32 set.
+CRT_DLLS = (
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "concrt140.dll",
+)
 
 binaries = []
 datas = []
@@ -65,6 +81,18 @@ a = Analysis(
     noarchive=False,
 )
 
+# Collapse every MSVC runtime copy down to the system build; see CRT_DLLS above.
+# numpy's privately renamed copy (msvcp140-<hash>.dll) has its own base name and
+# cannot collide, so it is left alone.
+a.binaries = [
+    entry for entry in a.binaries if Path(entry[0]).name.lower() not in CRT_DLLS
+]
+a.binaries += [
+    (name, str(SYSTEM32 / name), "BINARY")
+    for name in CRT_DLLS
+    if (SYSTEM32 / name).exists()
+]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -80,8 +108,23 @@ exe = EXE(
     console=False,
 )
 
+# Same app with a console attached. Without it a failure inside a bundled native
+# library is completely silent - there is nowhere for the traceback to go.
+exe_debug = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="SubOrdinant-debug",
+    debug=False,
+    strip=False,
+    upx=False,
+    console=True,
+)
+
 coll = COLLECT(
     exe,
+    exe_debug,
     a.binaries,
     a.datas,
     strip=False,

@@ -9,10 +9,15 @@ only way to control or quit it.
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import logging
 import signal
 import sys
 from dataclasses import fields
+
+# A DLL conflict inside CTranslate2 or Qt faults the process rather than raising,
+# so without this a packaged build dies leaving nothing behind to debug.
+faulthandler.enable()
 
 # Imported before PyQt6 on purpose: the package __init__ pins the system MSVC
 # runtime, which has to happen before Qt puts its own copy on the search path.
