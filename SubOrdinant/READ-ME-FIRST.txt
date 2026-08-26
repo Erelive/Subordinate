@@ -1,0 +1,95 @@
+SubOrdinant - live captions for Windows system audio
+====================================================
+
+This is a test build. It captures whatever your PC is playing, transcribes it
+with a local Whisper model on your GPU, and draws captions in an overlay above
+the taskbar. Nothing is sent anywhere; there is no account and no network call
+in the caption path.
+
+English transcription only right now. It does not translate.
+
+
+BEFORE YOU START
+----------------
+
+1. Unblock the zip BEFORE extracting it. Windows tags downloaded archives, and
+   the tag is copied to every file inside. Right-click the .zip -> Properties ->
+   tick "Unblock" -> OK, then extract. Doing this after extraction means fixing
+   hundreds of files instead of one.
+
+2. Extract the whole folder somewhere and keep it intact. SubOrdinant.exe will
+   not run on its own - it needs the _internal folder beside it.
+
+3. The build is not code-signed, so Windows SmartScreen will show
+   "Windows protected your PC". Click "More info" -> "Run anyway". Some antivirus
+   products also flag PyInstaller-packaged apps; this is a known false positive
+   pattern, not something specific to this build.
+
+
+FIRST RUN
+---------
+
+The first launch downloads about 1.6 GB of model weights from Hugging Face and
+caches them in your user profile. You need an internet connection for that one
+time only; every run after that is fully offline.
+
+That download happens silently with no progress bar, so the first start can look
+frozen for several minutes. Later starts take about 7 seconds.
+
+
+RUNNING IT
+----------
+
+Double-click SubOrdinant.exe.
+
+No window will open - that is correct. You get a tray icon (bottom-right, you may
+have to click the "^" arrow to see hidden icons) and a notification saying
+"Listening to system audio".
+
+The overlay is click-through and has no taskbar button, so THE TRAY ICON IS THE
+ONLY WAY TO QUIT. Right-click it for Pause and Quit.
+
+
+TESTING IT
+----------
+
+Play anything with speech - YouTube, a podcast, a Discord call. Captions appear
+centred near the bottom of the screen within about a second.
+
+  White text = final, it will not change
+  Grey text  = the model's current guess, may still be revised
+
+Silence proves nothing by itself: Windows loopback capture delivers no audio at
+all when nothing is playing, so "broken" and "nothing playing" look identical.
+Always test with something actually producing sound.
+
+
+IF IT DOES NOT WORK
+-------------------
+
+Run SubOrdinant-debug.exe instead. It is the same application with a console
+window attached, so errors are visible instead of silent. Send back whatever it
+prints.
+
+
+WHAT TO REPORT
+--------------
+
+Useful things to note:
+
+  - your GPU, and whether captions kept up or fell behind
+  - how far behind the audio the captions felt
+  - whether text visibly rewrote itself after settling (it should not)
+  - anything it captioned badly, and what the audio actually was
+
+
+KNOWN LIMITS
+------------
+
+  - Needs an NVIDIA GPU for real-time speed. Without one it falls back to CPU
+    automatically and will lag badly; it will run, but not usefully.
+  - Cannot draw over games running in exclusive fullscreen. Borderless windowed
+    mode works.
+  - Changing your default output device while it is running is not detected.
+    Restart the app.
+  - Music and singing sometimes produce lyric-shaped nonsense.
