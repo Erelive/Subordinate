@@ -14,6 +14,11 @@ nvidia-cudnn-cu12==9.6.0.74
 # High-quality resampling, 48 kHz device rate -> 16 kHz model rate
 soxr==0.5.0.post1
 
+# Tokenizer for the NMT translation stage (subordinant/translate.py). The model
+# itself runs on CTranslate2, which faster-whisper already pulls in, so this is
+# the only extra dependency translation costs.
+sentencepiece==0.2.2
+
 numpy==2.2.1
 
 # Overlay window

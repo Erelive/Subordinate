@@ -39,7 +39,15 @@ def main() -> int:
     def on_status(msg: str) -> None:
         print(f"[{msg}]", flush=True)
 
-    pipeline = CaptionPipeline(cfg, on_caption, on_status, on_commit=on_commit)
+    def on_translation(source: str, english: str) -> None:
+        # One finished utterance, both languages - the pair is the point, so
+        # print them together rather than interleaved with the streaming line.
+        print(f"  JA  {source}", flush=True)
+        print(f"  EN  {english}", flush=True)
+
+    pipeline = CaptionPipeline(
+        cfg, on_caption, on_status, on_commit=on_commit, on_translation=on_translation
+    )
     pipeline.start()
     print(f"running for {seconds:.0f}s" if seconds else "Ctrl+C to stop.", flush=True)
     deadline = time.monotonic() + seconds if seconds else None
@@ -58,6 +66,13 @@ def main() -> int:
             f"caption lag: mean {s.mean_lag_sec:.2f}s, max {s.max_lag_sec:.2f}s "
             f"over {s.commits} commits, {s.drops} backlog drops"
         )
+        if s.mt_calls:
+            # Per pass, not per call, is the number that matters for keeping up.
+            amortised = 1000.0 * s.total_mt_sec / s.passes if s.passes else 0.0
+            print(
+                f"translation: {s.mt_calls} utterances, mean {s.mean_mt_ms:.0f} ms each, "
+                f"{amortised:.0f} ms/pass amortised"
+            )
     return 0
 
 

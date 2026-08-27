@@ -34,9 +34,37 @@ class Config:
     # task="translate" gives Japanese audio -> English captions.
     language: str = "en"
     # "translate" always targets English; Whisper has no other target. Needs a
-    # full model - see translate_warning() in asr.py.
+    # full model - see translate_warning() in asr.py. Prefer mt_enabled below:
+    # a dedicated NMT model translates better and costs less than this does.
     task: str = "transcribe"
     beam_size: int = 1  # greedy; beams cost latency for little gain here
+
+    # --- translation ---
+    # Translate committed utterances with a dedicated NMT model instead of
+    # Whisper's task="translate". Captions then carry both the source text and
+    # the English. See subordinant/translate.py for why this is the cheaper
+    # route despite being a second model.
+    mt_enabled: bool = False
+    mt_model: str = "entai2965/sugoi-v4-ja-en-ctranslate2"
+    # Which SentencePiece pair to load out of the model's spm/ directory.
+    mt_source_lang: str = "ja"
+    mt_target_lang: str = "en"
+    # Beam search is nearly free here - it runs per utterance, not per pass.
+    # Measured ~46 ms at beam 1 against ~57 ms at beam 5.
+    mt_beam_size: int = 5
+    # NMT models degenerate into repetition loops when handed input they cannot
+    # parse, and garbled ASR off a noisy stream is exactly that. Without these an
+    # utterance can decode into hundreds of repeated words. The cap is the
+    # backstop; the penalties stop it well before reaching it.
+    mt_repetition_penalty: float = 1.2
+    mt_no_repeat_ngram_size: int = 3
+    mt_max_decoding_length: int = 128
+    # Translation normally fires on a sentence ending. Continuous speech - a
+    # conversation between several people, say - may never produce one, and
+    # waiting for silence would mean no English at all while anyone is talking.
+    # This is the backstop: translate whatever has accumulated once it spans
+    # this long, sentence boundary or not.
+    mt_max_utterance_sec: float = 6.0
 
     # --- streaming ---
     # How much fresh audio to accumulate before running inference again. Lower

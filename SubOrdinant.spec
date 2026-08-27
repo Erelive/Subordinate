@@ -49,7 +49,7 @@ for dll in SITE_PACKAGES.glob("nvidia/*/bin/*.dll"):
 # Silero VAD ONNX weights and the tokenizer files faster-whisper ships.
 datas += collect_data_files("faster_whisper")
 
-for package in ("onnxruntime", "av", "pyaudiowpatch", "soxr"):
+for package in ("onnxruntime", "av", "pyaudiowpatch", "soxr", "sentencepiece"):
     binaries += collect_dynamic_libs(package)
 
 a = Analysis(
@@ -61,6 +61,10 @@ a = Analysis(
         "subordinant",
         "pyaudiowpatch",
         "soxr",
+        # The translation stage. Imported lazily inside Translator.__init__, so
+        # PyInstaller's static analysis does not find either of these.
+        "sentencepiece",
+        "huggingface_hub",
     ],
     hookspath=[],
     runtime_hooks=[],

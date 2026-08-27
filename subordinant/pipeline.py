@@ -20,6 +20,7 @@ from .asr import Transcriber, Word
 from .audio import LoopbackCapture
 from .config import SAMPLE_RATE, Config
 from .streaming import StreamingTranscriber, join_words
+from .translate import TranslationUnavailable, Translator
 from .vad import EnergyGate
 
 log = logging.getLogger(__name__)
@@ -27,9 +28,26 @@ log = logging.getLogger(__name__)
 CaptionCallback = Callable[[str, str], None]
 StatusCallback = Callable[[str], None]
 CommitCallback = Callable[[str], None]
+# (source text, english) for one finished utterance. Fires only with mt_enabled.
+TranslationCallback = Callable[[str, str], None]
 
 # Audio kept before the gate opens, so the attack of the first word isn't lost.
 PREROLL_SEC = 0.35
+
+# What Whisper puts at the end of a sentence. The Japanese forms matter most
+# here; the ASCII ones cover source languages that use them, and "..." is
+# deliberately absent - it marks hesitation mid-sentence far more often than an
+# ending, and cutting there would hand MT a fragment.
+_SENTENCE_END = ("。", "！", "？", ".", "!", "?")
+
+
+def _sentence_cut(words: list[Word]) -> int:
+    """How many leading words form whole sentences. 0 if none do."""
+    for i in range(len(words) - 1, -1, -1):
+        text = words[i].text.strip()
+        if text.endswith(_SENTENCE_END) and not text.endswith("..."):
+            return i + 1
+    return 0
 
 
 @dataclass
@@ -41,6 +59,12 @@ class Stats:
     commits: int = 0
     total_lag_sec: float = 0.0
     max_lag_sec: float = 0.0
+    mt_calls: int = 0
+    total_mt_sec: float = 0.0
+
+    @property
+    def mean_mt_ms(self) -> float:
+        return 1000.0 * self.total_mt_sec / self.mt_calls if self.mt_calls else 0.0
 
     @property
     def rtf(self) -> float:
@@ -65,6 +89,7 @@ class CaptionPipeline:
         on_status: StatusCallback | None = None,
         transcriber: Transcriber | None = None,
         on_commit: CommitCallback | None = None,
+        on_translation: TranslationCallback | None = None,
     ):
         self.cfg = cfg
         self.on_caption = on_caption
@@ -72,7 +97,20 @@ class CaptionPipeline:
         # Fires once per word that becomes final, never re-sent. on_caption by
         # contrast re-sends a rolling window, so it cannot build a transcript.
         self.on_commit = on_commit or (lambda _text: None)
+        # Fires once per finished utterance, after translation.
+        self.on_translation = on_translation or (lambda _src, _en: None)
         self.transcriber = transcriber
+        self.translator = None
+        # Stream time up to which source text has been handed to MT.
+        self._mt_until = 0.0
+
+        # With MT running, Whisper's job is to produce source-language text -
+        # asking it to translate as well would hand the NMT model English and
+        # throw away the source column. Enforced here rather than in Config
+        # because this is the one path both the GUI and tools.console take.
+        if cfg.mt_enabled and cfg.task == "translate":
+            log.info("mt_enabled: using task=transcribe, MT does the translating")
+            cfg.task = "transcribe"
 
         self.stats = Stats()
         self._thread: threading.Thread | None = None
@@ -112,6 +150,16 @@ class CaptionPipeline:
                 self.on_status("loading model...")
                 self.transcriber = Transcriber(self.cfg)
                 self.transcriber.warmup()
+
+            if self.cfg.mt_enabled and self.translator is None:
+                self.on_status("loading translation model...")
+                try:
+                    self.translator = Translator(self.cfg)
+                except TranslationUnavailable as exc:
+                    # Captions in the source language are still useful, so this
+                    # degrades rather than aborting the run.
+                    log.warning("translation disabled: %s", exc)
+                    self.on_status(f"translation unavailable: {exc}")
 
             capture = LoopbackCapture(frames_per_buffer=self.cfg.frames_per_buffer)
             self.on_status("opening audio device...")
@@ -166,6 +214,8 @@ class CaptionPipeline:
                         self._run_pass(stream, audio_sec=pending_sec)
                     self._announce(stream, stream.end_utterance())
                     self._emit(stream)
+                    # Silence: settle whatever is left, whole sentence or not.
+                    self._flush_translation(stream, force=True)
                     stream.prune_history(self.cfg.display_history_sec * 2)
                     in_speech = False
                     pending_sec = 0.0
@@ -186,6 +236,9 @@ class CaptionPipeline:
                 self._run_pass(stream, audio_sec=pending_sec)
                 pending_sec = 0.0
                 self._emit(stream)
+                # Mid-speech: send any sentence that has completed, so continuous
+                # talk still produces English instead of waiting for a gap.
+                self._flush_translation(stream, force=False)
         finally:
             capture.stop()
             log.info(
@@ -207,6 +260,52 @@ class CaptionPipeline:
         self.stats.total_infer_sec += elapsed
         self.stats.total_audio_sec += audio_sec or self.cfg.process_interval_sec
         self._announce(stream, committed)
+
+    def _flush_translation(self, stream: StreamingTranscriber, force: bool) -> None:
+        """Translate whatever source text has settled but not yet been sent.
+
+        Called after every pass, not only at end of utterance: waiting for
+        silence means a conversation with no gaps in it never gets translated at
+        all. A sentence ending is the natural unit, with mt_max_utterance_sec as
+        the backstop for speech that never provides one.
+
+        Progress is tracked by timestamp rather than by index into the committed
+        list, because prune_history() rewrites that list and any saved index
+        would then point at the wrong word.
+        """
+        if self.translator is None:
+            return
+        pending = [
+            w for w in stream.hypothesis.committed if w.start >= self._mt_until
+        ]
+        if not pending:
+            return
+
+        if force:
+            cut = len(pending)
+        else:
+            cut = _sentence_cut(pending)
+            if cut == 0:
+                # No sentence ending yet. Hold unless this has run long enough
+                # that holding would mean showing nothing.
+                if pending[-1].end - pending[0].start < self.cfg.mt_max_utterance_sec:
+                    return
+                cut = len(pending)
+
+        chunk = pending[:cut]
+        # Advance regardless of the outcome below, so a chunk that translates to
+        # nothing cannot be retried forever.
+        self._mt_until = chunk[-1].end
+
+        source = join_words(chunk)
+        if not source:
+            return
+        t0 = time.perf_counter()
+        english = self.translator.translate(source)
+        self.stats.mt_calls += 1
+        self.stats.total_mt_sec += time.perf_counter() - t0
+        if english:
+            self.on_translation(source, english)
 
     def _announce(self, stream: StreamingTranscriber, words: list[Word]) -> None:
         text = join_words(words)

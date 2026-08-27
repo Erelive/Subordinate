@@ -48,6 +48,7 @@ class Bridge(QObject):
 
     caption = pyqtSignal(str, str)
     status = pyqtSignal(str)
+    translation = pyqtSignal(str, str)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -61,6 +62,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         choices=["transcribe", "translate"],
         help="translate outputs English for any source language",
     )
+    parser.add_argument(
+        "--mt",
+        dest="mt_enabled",
+        action="store_true",
+        default=None,  # None so it cannot override a saved config's value
+        help="translate finished utterances with a dedicated NMT model instead "
+        "of Whisper's --task translate; shows source text and English",
+    )
+    parser.add_argument("--mt-model", dest="mt_model", help="NMT model to use")
     parser.add_argument("--font-size", type=int)
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument(
@@ -95,6 +105,9 @@ def main(argv: list[str] | None = None) -> int:
     overlay = CaptionOverlay(cfg)
     bridge = Bridge()
     bridge.caption.connect(overlay.set_caption, Qt.ConnectionType.QueuedConnection)
+    bridge.translation.connect(
+        overlay.set_translation, Qt.ConnectionType.QueuedConnection
+    )
 
     if not QSystemTrayIcon.isSystemTrayAvailable():
         QMessageBox.critical(
@@ -116,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg,
         on_caption=bridge.caption.emit,
         on_status=bridge.status.emit,
+        on_translation=bridge.translation.emit,
     )
 
     def on_status(msg: str) -> None:

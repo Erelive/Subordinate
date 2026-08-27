@@ -63,37 +63,73 @@ launches the overlay, speaks into it, and screenshots the result.
 
 ## Japanese to English captions
 
-Whisper translates other languages *into English*, and only that direction. There
-is no setting that produces Japanese captions from English audio - the model has
-no target language to choose.
+Translation runs in either of two ways. **`--mt` is the recommended one**: Whisper
+transcribes the Japanese, and a dedicated NMT model turns each finished utterance
+into English. It is faster than making Whisper translate, reads better, and shows
+both languages at once.
 
-**1. Fetch the model.** `large-v3` is required and is not the default:
+**1. Fetch the models.** Whisper's default is fine here - only the NMT model is
+new:
 
 ```
-.venv\Scripts\python.exe -m tools.fetch_model large-v3
+.venv\Scripts\python.exe -m tools.fetch_model --mt
 ```
 
-About 3 GB. Skip this and the first launch downloads it anyway, silently, while
-nothing appears on screen.
+About 1 GB, cached alongside the Whisper weights. Skip it and the first launch
+downloads it anyway, silently, while nothing appears on screen.
 
 **2. Run it**, then start the Japanese audio:
 
 ```
-.venv\Scripts\python.exe main.py --model large-v3 --language ja --task translate
+.venv\Scripts\python.exe main.py --language ja --mt
 ```
 
 Capture is from the **default playback device**, so anything audible works - a
 video, a live stream, a call. Quit from the tray icon. Add `--verbose` on a first
-run to watch the model load and confirm the capture device.
+run to watch the models load and confirm the capture device.
+
+The overlay shows the English in white with the Japanese dimmed beneath it. The
+Japanese streams word by word; the English lands one sentence at a time, once the
+speaker pauses. That is not a tuning problem - see below.
 
 **3. Make it permanent** once it looks right:
 
 ```
-.venv\Scripts\python.exe main.py --model large-v3 --language ja --task translate --save-config
+.venv\Scripts\python.exe main.py --language ja --mt --save-config
 ```
 
 That writes `%APPDATA%\SubOrdinant\config.json` and plain `main.py` then uses
 these settings. Delete that file to return to English transcription.
+
+### The other way: Whisper's own translation
+
+Whisper can translate without a second model, but needs `large-v3` to do it, and
+gives you English only - the Japanese is discarded:
+
+```
+.venv\Scripts\python.exe -m tools.fetch_model large-v3
+.venv\Scripts\python.exe main.py --model large-v3 --language ja --task translate
+```
+
+Measured on an RTX 4080 SUPER at the default 12 s buffer:
+
+| | ms/pass | RTF | Output |
+|---|---|---|---|
+| `--mt` (turbo + NMT) | 154 + ~6 amortised | **0.31** | Japanese *and* English |
+| `--task translate` (large-v3) | 460 | **0.92** | English only |
+
+`--mt` is roughly 3x cheaper because the NMT stage runs once per *utterance* -
+about one call in eight passes - rather than on every pass over the rolling
+buffer. At ~46 ms per call it amortises to single-digit milliseconds per pass. The
+`--task translate` route runs at RTF 0.92, which leaves ~40 ms of headroom before
+`max_backlog_sec` starts discarding audio outright.
+
+Quality favours `--mt` too. Whisper's translate task was a training side
+objective, not a translation system, and it shows most on proper nouns.
+
+Whisper translates other languages *into English*, and only that direction, in
+both modes. There is no setting that produces Japanese captions from English
+audio - the model has no target language to choose.
 
 ### Why not the default model
 
@@ -121,7 +157,24 @@ context for throughput, and watch for `dropped backlog` under `--verbose`.
 
 Proper nouns are the weak point. Names, nicknames and invented terms are
 routinely mangled by the translate task, so content that leans on them loses
-detail plain transcription would have kept.
+detail plain transcription would have kept. `--mt` helps twice over: the NMT
+model handles them better, and the Japanese stays on screen underneath, so a
+mangled name is still recoverable by eye.
+
+**English arrives a sentence at a time under `--mt`, and cannot be streamed.**
+LocalAgreement-2 commits a stable prefix, which works because transcription is
+monotonic - the words already settled never change. Translation is not: Japanese
+is SOV and English is SVO, so the verb ending a Japanese sentence lands in the
+middle of the English one. A partial Japanese sentence does not determine an
+English prefix, so streaming it would produce captions that rewrite themselves,
+which is the exact behaviour the streaming design exists to eliminate.
+
+Translation fires whenever a sentence completes, not only during pauses - a
+conversation between several people can run for minutes without a gap, and
+waiting for one would mean no English at all while anyone is talking. Speech that
+never produces a sentence ending is translated anyway once it spans
+`mt_max_utterance_sec` (6 s by default). Lower that for shorter, more frequent
+English; raise it for fewer, longer, better-formed sentences.
 
 Memorised sign-offs such as "Thank you for watching!" also surface during music
 and silence. The blocklist in `subordinant/asr.py` drops them when they are a
@@ -148,6 +201,12 @@ Every setting in `subordinant/config.py` can be overridden from
 The settings worth touching:
 
 - `model` - `distil-large-v3` is faster, `large-v3` is needed for `translate`
+- `mt_enabled` - translate utterances with a dedicated NMT model (`--mt`)
+- `mt_model` - the NMT model; defaults to Sugoi v4 JA->EN
+- `mt_source_lang` / `mt_target_lang` - which SentencePiece pair to load
+- `mt_beam_size` - beam search is nearly free here; it runs per utterance
+- `mt_max_utterance_sec` - translate unpunctuated speech after this long
+- `mt_repetition_penalty`, `mt_no_repeat_ngram_size` - stop NMT repeat loops
 - `compute_type` - `int8_float16` roughly halves VRAM at a small accuracy cost
 - `process_interval_sec` - lower is more responsive and more GPU work
 - `max_buffer_sec` - longer context is more accurate but pushes RTF towards 1.0

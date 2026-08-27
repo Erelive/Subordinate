@@ -96,6 +96,7 @@ class CaptionOverlay(QWidget):
 
         self._committed = ""
         self._unstable = ""
+        self._translation = ""
 
     # -- content -----------------------------------------------------------
 
@@ -106,17 +107,46 @@ class CaptionOverlay(QWidget):
         if committed == self._committed and unstable == self._unstable:
             return
         self._committed, self._unstable = committed, unstable
+        self._render()
 
-        if not committed and not unstable:
+    @pyqtSlot(str, str)
+    def set_translation(self, source: str, english: str) -> None:  # noqa: ARG002
+        """Show the English for the utterance that just closed.
+
+        Replaces rather than appends: one finished sentence at a time is what
+        the MT stage produces, and the source text above it is already the
+        running context.
+        """
+        english = english.strip()
+        if english == self._translation:
+            return
+        self._translation = english
+        self._render()
+
+    def _render(self) -> None:
+        committed, unstable = self._committed, self._unstable
+        translation = self._translation
+
+        if not committed and not unstable and not translation:
             self._idle.start(int(self.cfg.hide_after_idle_sec * 1000))
             return
         self._idle.stop()
 
         pieces = []
-        if committed:
+        if translation:
+            # The translation is what the viewer is here to read, so it gets the
+            # committed colour and the transcription drops to the dim one - the
+            # source text is reference, not the caption.
             pieces.append(
                 f'<span style="color:{self.cfg.committed_color}">'
-                f"{html.escape(committed)}</span>"
+                f"{html.escape(translation)}</span><br>"
+            )
+        source_color = (
+            self.cfg.unstable_color if translation else self.cfg.committed_color
+        )
+        if committed:
+            pieces.append(
+                f'<span style="color:{source_color}">{html.escape(committed)}</span>'
             )
         if unstable:
             pieces.append(
@@ -142,6 +172,7 @@ class CaptionOverlay(QWidget):
         self.update()
 
     def clear(self) -> None:
+        self._translation = ""
         self.set_caption("", "")
 
     # -- geometry ----------------------------------------------------------
