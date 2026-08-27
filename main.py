@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (  # noqa: E402
     QSystemTrayIcon,
 )
 
+from subordinant.asr import translate_warning  # noqa: E402
 from subordinant.overlay import CaptionOverlay, make_tray_icon  # noqa: E402
 from subordinant.pipeline import CaptionPipeline  # noqa: E402
 
@@ -150,12 +151,22 @@ def main(argv: list[str] | None = None) -> int:
     heartbeat.timeout.connect(lambda: None)
 
     pipeline.start()
-    tray.showMessage(
-        "SubOrdinant",
-        "Listening to system audio. Quit from this tray icon.",
-        QSystemTrayIcon.MessageIcon.Information,
-        3000,
-    )
+    # Windows shows one balloon at a time, so these are exclusive: the greeting
+    # would otherwise replace the warning a second after it appeared. Raised
+    # here rather than from the pipeline because a translate/model mismatch is
+    # knowable from the config alone, before the model load spends minutes on it.
+    mismatch = translate_warning(cfg)
+    if mismatch:
+        tray.showMessage(
+            "SubOrdinant", mismatch, QSystemTrayIcon.MessageIcon.Warning, 10000
+        )
+    else:
+        tray.showMessage(
+            "SubOrdinant",
+            "Listening to system audio. Quit from this tray icon.",
+            QSystemTrayIcon.MessageIcon.Information,
+            3000,
+        )
     return app.exec()
 
 

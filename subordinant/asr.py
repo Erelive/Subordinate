@@ -31,7 +31,46 @@ _HALLUCINATIONS = {
     "subs by www.zeoranger.co.uk",
     "please subscribe!",
     "♪",
+    # Japanese sources have their own set, memorised from YouTube subtitles.
+    # These leak through untranslated even with task="translate", because the
+    # model is not translating anything - it is reciting a caption card.
+    "ご視聴ありがとうございました",
+    "ご視聴ありがとうございました。",
+    "ご視聴ありがとうございます",
+    "ご視聴ありがとうございます。",
+    "最後までご視聴いただきありがとうございました",
+    "最後までご視聴いただきありがとうございました。",
+    "チャンネル登録お願いします",
+    "チャンネル登録をお願いします",
+    "おやすみなさい",
+    "おやすみなさい。",
 }
+
+
+# Models that are weak at task="translate" - not models that refuse it. Both
+# accept the task and run: the turbo checkpoints are multilingual and carry the
+# <|translate|> token, they are just pruned to four decoder layers and fine-tuned
+# on transcription only, so translation is unreliable and commonly comes back in
+# the source language. The distil-* ones are English-only distillations, so a
+# non-English source is the harder problem for them.
+#
+# Nothing errors in either case, which is the reason to say something here: bad
+# captions otherwise look like an audio or language problem.
+_WEAK_TRANSLATE = ("turbo", "distil")
+
+
+def translate_warning(cfg: Config) -> str | None:
+    """Return a warning if cfg asks a weak-at-translation model to translate."""
+    if cfg.task != "translate":
+        return None
+    name = cfg.model.lower()
+    if not any(marker in name for marker in _WEAK_TRANSLATE):
+        return None
+    return (
+        f"{cfg.model} is fine-tuned for transcription; translation is unreliable "
+        "and may come back in the source language. If captions look wrong, "
+        "try --model large-v3."
+    )
 
 
 @dataclass(frozen=True)
@@ -45,6 +84,9 @@ class Word:
 class Transcriber:
     def __init__(self, cfg: Config):
         self.cfg = cfg
+        warning = translate_warning(cfg)
+        if warning:
+            log.warning("%s", warning)
         t0 = time.perf_counter()
         try:
             self.model = WhisperModel(
@@ -66,7 +108,12 @@ class Transcriber:
         rng = np.random.default_rng(0)
         noise = (rng.standard_normal(SAMPLE_RATE) * 0.01).astype(np.float32)
         t0 = time.perf_counter()
-        segments, _ = self.model.transcribe(noise, language=self.cfg.language, beam_size=1)
+        # task must match the real passes: translate runs a different decoder
+        # prompt, and warming the wrong one leaves the first caption slow, which
+        # is the entire thing this method exists to prevent.
+        segments, _ = self.model.transcribe(
+            noise, language=self.cfg.language, task=self.cfg.task, beam_size=1
+        )
         list(segments)  # the generator is lazy; force it
         elapsed = time.perf_counter() - t0
         log.info("warmup pass: %.2fs", elapsed)

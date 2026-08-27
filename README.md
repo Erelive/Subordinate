@@ -24,9 +24,7 @@ word that just became final on screen - the number a viewer actually perceives.
 
 ## Status
 
-Windows only, English transcription only. Translation of other languages into
-English is a config change away (`--task translate`) but is not what the current
-defaults are tuned or tested for.
+Windows only. English transcription is the tuned and tested default.
 
 ## Requirements
 
@@ -56,12 +54,78 @@ only way to pause or quit it**.
 .venv\Scripts\python.exe -m tools.doctor           # devices + GPU + speed
 .venv\Scripts\python.exe -m tools.capture_check 6  # is loopback capturing?
 .venv\Scripts\python.exe -m tools.console 30       # captions in the terminal
-.venv\Scripts\python.exe main.py --task translate  # any language -> English
+.venv\Scripts\python.exe main.py --model large-v3 --language ja --task translate
 ```
 
 `tools\speak.ps1` speaks text through the speakers with Windows SAPI, which gives
 the capture path a repeatable source with known ground truth. `tools\overlay_test.ps1`
 launches the overlay, speaks into it, and screenshots the result.
+
+## Japanese to English captions
+
+Whisper translates other languages *into English*, and only that direction. There
+is no setting that produces Japanese captions from English audio - the model has
+no target language to choose.
+
+**1. Fetch the model.** `large-v3` is required and is not the default:
+
+```
+.venv\Scripts\python.exe -m tools.fetch_model large-v3
+```
+
+About 3 GB. Skip this and the first launch downloads it anyway, silently, while
+nothing appears on screen.
+
+**2. Run it**, then start the Japanese audio:
+
+```
+.venv\Scripts\python.exe main.py --model large-v3 --language ja --task translate
+```
+
+Capture is from the **default playback device**, so anything audible works - a
+video, a live stream, a call. Quit from the tray icon. Add `--verbose` on a first
+run to watch the model load and confirm the capture device.
+
+**3. Make it permanent** once it looks right:
+
+```
+.venv\Scripts\python.exe main.py --model large-v3 --language ja --task translate --save-config
+```
+
+That writes `%APPDATA%\SubOrdinant\config.json` and plain `main.py` then uses
+these settings. Delete that file to return to English transcription.
+
+### Why not the default model
+
+`large-v3-turbo` does not translate. It loads, accepts `--task translate`, and
+returns **Japanese** - transcribing instead of translating, because the turbo
+fine-tune was trained on transcription only. Nothing errors, so it reads as a bug
+somewhere else; the app raises a tray warning at startup instead. The `distil-*`
+models are English-only distillations and are wrong for a Japanese source for a
+different reason.
+
+Turbo remains the better choice for *transcribing* Japanese, which it does well
+and roughly 2.5x faster.
+
+### What to expect
+
+`--language ja` describes the audio, not the captions. Leaving it off makes
+Whisper re-guess the source language every pass, which it does inconsistently on
+a rolling buffer.
+
+`large-v3` costs about 2.5x turbo per pass. Measured on an RTX 4080 SUPER at the
+default 12 s buffer: ~400 ms per pass, real-time factor near 0.8 - it keeps up,
+without much headroom. On the 8 GB laptop GPU in the table above it will not;
+raise `process_interval_sec` or lower `max_buffer_sec` to trade latency or
+context for throughput, and watch for `dropped backlog` under `--verbose`.
+
+Proper nouns are the weak point. Names, nicknames and invented terms are
+routinely mangled by the translate task, so content that leans on them loses
+detail plain transcription would have kept.
+
+Memorised sign-offs such as "Thank you for watching!" also surface during music
+and silence. The blocklist in `subordinant/asr.py` drops them when they are a
+pass's entire output, but not when they are appended to real speech.
 
 ## Building the distributable
 

@@ -30,8 +30,12 @@ class Config:
     model: str = "large-v3-turbo"
     device: str = "cuda"  # "cuda" or "cpu"
     compute_type: str = "float16"  # "int8_float16" halves VRAM, slightly worse
+    # Source language of the audio, not of the captions. "ja" with
+    # task="translate" gives Japanese audio -> English captions.
     language: str = "en"
-    task: str = "transcribe"  # v2: "translate" for any-language -> English
+    # "translate" always targets English; Whisper has no other target. Needs a
+    # full model - see translate_warning() in asr.py.
+    task: str = "transcribe"
     beam_size: int = 1  # greedy; beams cost latency for little gain here
 
     # --- streaming ---
