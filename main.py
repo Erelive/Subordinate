@@ -30,6 +30,7 @@ from pathlib import Path
 # the MSVC runtime, and that is itself a load-library step worth having a
 # faulthandler for.
 _crash_log = None  # module-level so it is not closed by garbage collection
+_null_out = None
 if sys.stderr is not None:
     faulthandler.enable()
 else:
@@ -40,6 +41,29 @@ else:
         faulthandler.enable(_crash_log)
     except OSError:
         pass  # no crash log is survivable; failing to start is not
+
+    # Give the interpreter real streams before importing anything else.
+    #
+    # Plenty of libraries write to stdout/stderr without checking - tqdm, which
+    # huggingface_hub uses for download progress, is the one that bit here:
+    # fetching the translation model died with "'NoneType' object has no
+    # attribute 'write'" and the app sat on "loading translation model..."
+    # forever. Guarding each caller individually is whack-a-mole; giving them
+    # something writable fixes the whole class at once.
+    #
+    # stderr goes to the crash log rather than nowhere, because Python's default
+    # excepthook prints tracebacks there - otherwise an unhandled exception in a
+    # windowed build leaves no trace at all.
+    try:
+        _null_out = open(os.devnull, "w", encoding="utf-8")
+        sys.stdout = _null_out
+        sys.stderr = _crash_log or _null_out
+    except OSError:
+        pass
+
+# Progress bars have nowhere useful to go in a windowed build, and writing them
+# to the crash log would bury the tracebacks it exists for.
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
 # Imported before PyQt6 on purpose: the package __init__ pins the system MSVC
 # runtime, which has to happen before Qt puts its own copy on the search path.
@@ -71,8 +95,13 @@ class Bridge(QObject):
 
     caption = pyqtSignal(str, str)
     status = pyqtSignal(str)
-    translation = pyqtSignal(str, str)
-    commit = pyqtSignal(str)
+    # The trailing int is the speaker id, diarize.UNKNOWN when unlabelled. Qt
+    # signals need a concrete type, which is why it is a sentinel int rather
+    # than an optional.
+    translation = pyqtSignal(str, str, int)
+    commit = pyqtSignal(str, int)
+    # English for speech still in progress; replaces itself every pass.
+    live_translation = pyqtSignal(str)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -95,8 +124,28 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "of Whisper's --task translate; shows source text and English",
     )
     parser.add_argument("--mt-model", dest="mt_model", help="NMT model to use")
+    parser.add_argument(
+        "--speakers",
+        dest="diarize_enabled",
+        action="store_true",
+        default=None,  # None so it cannot override a saved config's value
+        help="label each line with who said it, and split lines when the "
+        "speaking voice changes",
+    )
+    parser.add_argument(
+        "--initial-prompt",
+        dest="initial_prompt",
+        help="names and terms to expect, so Whisper stops mishearing them; "
+        "keep it short or it starts reciting the prompt",
+    )
     parser.add_argument("--font-size", type=int)
     parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument(
+        "--selftest",
+        action="store_true",
+        help="load each model and exit, reporting what worked; run it from "
+        "SubOrdinant-debug.exe to check a packaged build",
+    )
     parser.add_argument(
         "--save-config",
         action="store_true",
@@ -115,12 +164,97 @@ def build_config(args: argparse.Namespace) -> Config:
     return cfg
 
 
+def selftest(cfg: Config) -> int:
+    """Load every native subsystem and report, without opening a window.
+
+    This exists because the failures that packaging introduces are DLL
+    conflicts, and those fault the process rather than raising - a bundle can be
+    built, signed and shipped and still die the moment a model is constructed.
+    Three separate libraries here resolve a DLL by base name that something else
+    on the machine also provides, Windows' own onnxruntime.dll among them, and
+    none of that is visible until the load is actually attempted.
+
+    Run it from SubOrdinant-debug.exe: the windowed build has no console for the
+    output to reach.
+    """
+    ok = True
+
+    def report(name: str, fn) -> None:
+        nonlocal ok
+        try:
+            print(f"  {name}: {fn()}", flush=True)
+        except Exception as exc:  # noqa: BLE001 - reporting is the whole job
+            ok = False
+            print(f"  {name}: FAILED - {type(exc).__name__}: {exc}", flush=True)
+
+    print(f"SubOrdinant selftest (frozen={getattr(sys, 'frozen', False)})", flush=True)
+
+    from subordinant import cuda
+
+    # These two ran at import time - importing the package is what pins them -
+    # so calling them again returns an empty list. Report the state instead;
+    # "(none)" from an idempotent call reads like a failure when it is the
+    # opposite.
+    report("msvc runtime", lambda: "pinned" if cuda._preloaded else "NOT pinned")
+    report("cuda dirs", lambda: "registered" if cuda._done else "not registered")
+    report("onnxruntime", lambda: cuda.preload_onnxruntime() or "(already pinned)")
+
+    def load_asr() -> str:
+        from subordinant.asr import Transcriber
+
+        Transcriber(cfg).warmup()
+        return f"{cfg.model} on {cfg.device}"
+
+    report("whisper", load_asr)
+
+    if cfg.mt_enabled:
+        def load_mt() -> str:
+            from subordinant.translate import Translator
+
+            return Translator(cfg).translate("これはテストです。") or "(empty)"
+
+        report("translation", load_mt)
+
+    if cfg.diarize_enabled:
+        def load_spk() -> str:
+            import numpy as np
+
+            from subordinant.config import SAMPLE_RATE
+            from subordinant.diarize import SpeakerTracker
+
+            tracker = SpeakerTracker(cfg)
+            # A second of noise: the point is that compute() runs at all, which
+            # is where a wrongly-bound onnxruntime takes the process down.
+            rng = np.random.default_rng(0)
+            tracker.feed(rng.standard_normal(SAMPLE_RATE * 2).astype(np.float32) * 0.1)
+            tracker.process()
+            return f"dim ok, {tracker.speaker_count} speaker(s) from noise"
+
+        report("speakers", load_spk)
+
+    def open_audio() -> str:
+        from subordinant.audio import LoopbackCapture
+
+        capture = LoopbackCapture(frames_per_buffer=cfg.frames_per_buffer)
+        capture.start()
+        name = capture.device_name
+        capture.stop()
+        return name
+
+    report("audio", open_audio)
+
+    print("PASS" if ok else "FAIL", flush=True)
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
     logsetup.configure(args.verbose)
     cfg = build_config(args)
     if args.save_config:
         print(f"wrote {cfg.save()}")
+    if args.selftest:
+        return selftest(cfg)
 
     app = QApplication(sys.argv[:1])
     # The overlay hides itself when idle; that must not end the process.
@@ -131,6 +265,9 @@ def main(argv: list[str] | None = None) -> int:
     bridge.caption.connect(window.set_live, Qt.ConnectionType.QueuedConnection)
     bridge.translation.connect(
         window.add_utterance, Qt.ConnectionType.QueuedConnection
+    )
+    bridge.live_translation.connect(
+        window.set_live_translation, Qt.ConnectionType.QueuedConnection
     )
     # Without MT there are no utterance pairs, so committed text is the only
     # thing that would ever reach the transcript.
@@ -146,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
             overlay.set_translation, Qt.ConnectionType.QueuedConnection
         )
 
-    window.apply_settings(cfg.window_opacity, cfg.window_on_top)
+    window.apply_settings(cfg.window_opacity, cfg.window_on_top, cfg.mt_live_enabled)
     window.show()
 
     if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -172,6 +309,7 @@ def main(argv: list[str] | None = None) -> int:
             on_status=bridge.status.emit,
             on_translation=bridge.translation.emit,
             on_commit=bridge.commit.emit,
+            on_live_translation=bridge.live_translation.emit,
         )
 
     pipeline = build_pipeline()
@@ -185,8 +323,11 @@ def main(argv: list[str] | None = None) -> int:
         mutated underneath a running thread.
         """
         nonlocal pipeline
-        language, engine = window.pending_settings()
+        language, engine, diarize, speaker_cap, prompt = window.pending_settings()
         cfg.language = language
+        cfg.diarize_enabled = diarize
+        cfg.diarize_max_speakers = speaker_cap
+        cfg.initial_prompt = prompt
         for key, value in ENGINES[engine].items():
             setattr(cfg, key, value)
 
@@ -245,6 +386,16 @@ def main(argv: list[str] | None = None) -> int:
 
     pause_action.toggled.connect(on_pause)
     window.pause_box.toggled.connect(on_pause)
+
+    def on_live_preview(enabled: bool) -> None:
+        # Read fresh on every pass by the worker, so no restart is needed. A
+        # bool assignment is atomic under the GIL; the worst case is that one
+        # in-flight pass uses the previous value.
+        cfg.mt_live_enabled = enabled
+        if not enabled:
+            window.set_live_translation("")
+
+    window.live_preview_box.toggled.connect(on_live_preview)
 
     def shutdown() -> None:
         # Persist what the window's controls were left on, so the next launch

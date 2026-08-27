@@ -112,7 +112,13 @@ class Transcriber:
         # prompt, and warming the wrong one leaves the first caption slow, which
         # is the entire thing this method exists to prevent.
         segments, _ = self.model.transcribe(
-            noise, language=self.cfg.language, task=self.cfg.task, beam_size=1
+            noise,
+            language=self.cfg.language,
+            task=self.cfg.task,
+            beam_size=1,
+            # Warming the same decoder path the real passes use, prompt included
+            # - a prompt changes the context length and so the cost.
+            initial_prompt=self.cfg.initial_prompt or None,
         )
         list(segments)  # the generator is lazy; force it
         elapsed = time.perf_counter() - t0
@@ -131,6 +137,9 @@ class Transcriber:
             beam_size=self.cfg.beam_size,
             word_timestamps=True,
             vad_filter=self.cfg.vad_filter,
+            # Names and terms this stream is going to use. None rather than ""
+            # so faster-whisper skips the prompt path entirely when unset.
+            initial_prompt=self.cfg.initial_prompt or None,
             # Streaming re-transcribes an overlapping buffer every pass. Feeding
             # the previous text back in makes Whisper loop on its own output.
             condition_on_previous_text=False,

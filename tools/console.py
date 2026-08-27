@@ -24,7 +24,7 @@ def main() -> int:
     last = ""
     transcript: list[str] = []
 
-    def on_commit(text: str) -> None:
+    def on_commit(text: str, speaker: int = -1) -> None:
         transcript.append(text)
 
     def on_caption(committed: str, unstable: str) -> None:
@@ -39,11 +39,12 @@ def main() -> int:
     def on_status(msg: str) -> None:
         print(f"[{msg}]", flush=True)
 
-    def on_translation(source: str, english: str) -> None:
+    def on_translation(source: str, english: str, speaker: int = -1) -> None:
         # One finished utterance, both languages - the pair is the point, so
         # print them together rather than interleaved with the streaming line.
-        print(f"  JA  {source}", flush=True)
-        print(f"  EN  {english}", flush=True)
+        who = f"S{speaker + 1} " if speaker >= 0 else "   "
+        print(f"  {who}JA  {source}", flush=True)
+        print(f"  {who}EN  {english}", flush=True)
 
     pipeline = CaptionPipeline(
         cfg, on_caption, on_status, on_commit=on_commit, on_translation=on_translation

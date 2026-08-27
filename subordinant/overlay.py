@@ -109,13 +109,19 @@ class CaptionOverlay(QWidget):
         self._committed, self._unstable = committed, unstable
         self._render()
 
-    @pyqtSlot(str, str)
-    def set_translation(self, source: str, english: str) -> None:  # noqa: ARG002
+    @pyqtSlot(str, str, int)
+    def set_translation(  # noqa: ARG002
+        self, source: str, english: str, speaker: int = -1
+    ) -> None:
         """Show the English for the utterance that just closed.
 
         Replaces rather than appends: one finished sentence at a time is what
         the MT stage produces, and the source text above it is already the
         running context.
+
+        The speaker id is accepted and ignored. The overlay shows one line over
+        a video, where a "Speaker 2" tag costs more width than it earns; the
+        transcript window is where labelling pays off.
         """
         english = english.strip()
         if english == self._translation:

@@ -49,6 +49,12 @@ for dll in SITE_PACKAGES.glob("nvidia/*/bin/*.dll"):
 # Silero VAD ONNX weights and the tokenizer files faster-whisper ships.
 datas += collect_data_files("faster_whisper")
 
+# onnxruntime's DLLs must keep their onnxruntime\capi\ layout, because
+# subordinant.cuda.preload_onnxruntime looks for exactly that path under
+# sys._MEIPASS. It has to load this copy by absolute path before sherpa-onnx
+# binds to the older onnxruntime.dll that Windows 11 ships in System32 - which
+# is a segfault, not an error. collect_dynamic_libs already preserves that
+# layout; the requirement is noted here so it is not "tidied" into the root.
 for package in ("onnxruntime", "av", "pyaudiowpatch", "soxr"):
     binaries += collect_dynamic_libs(package)
 
@@ -82,6 +88,11 @@ a = Analysis(
         # Imported lazily inside Translator.__init__, so static analysis misses
         # it. sentencepiece is deliberately absent - see the note above.
         "huggingface_hub",
+        # Likewise lazy, inside SpeakerTracker.__init__. Unlike sentencepiece
+        # this one is safe to let PyInstaller import for analysis - checked
+        # directly, it survives being imported after PyQt6 without the runtime
+        # pin, so it does not need the copy-by-hand treatment.
+        "sherpa_onnx",
     ],
     hookspath=[],
     runtime_hooks=[],

@@ -128,6 +128,29 @@ speaker pauses. That is not a tuning problem - see below.
 That writes `%APPDATA%\SubOrdinant\config.json` and plain `main.py` then uses
 these settings. Delete that file to return to English transcription.
 
+### Why not just use Whisper large-v3 to translate
+
+It is more accurate per sentence, and it loses words to pay for it. The pipeline
+re-transcribes the whole rolling buffer every pass, so cost grows with buffer
+length; measured on an RTX 4080 SUPER, per pass against 0.5 s of fresh audio:
+
+| engine | 4 s buffer | 8 s | 12 s |
+|---|---|---|---|
+| `large-v3-turbo` transcribe | 101 ms (RTF 0.20) | 124 ms (0.25) | 152 ms (**0.30**) |
+| `large-v3` translate | 214 ms (0.43) | 318 ms (0.64) | 416 ms (**0.83**) |
+
+RTF 0.83 leaves 17% headroom on an otherwise idle machine. Continuous speech
+keeps the buffer at its cap, and anything else using the GPU - a game on the
+other monitor, most obviously - pushes it past 1.0. The backlog then grows every
+pass until `max_backlog_sec`, at which point `drop_backlog()` discards that audio
+outright. Those words are never transcribed at all, which is what "it misses
+words" looks like from the outside.
+
+Turbo plus a dedicated translator sits at 0.30 and does not have that failure
+mode. Bigger MT models are affordable here where a bigger *Whisper* is not,
+because MT runs once per finished utterance rather than once per pass - roughly
+an eighth as often.
+
 ### The other way: Whisper's own translation
 
 Whisper can translate without a second model, but needs `large-v3` to do it, and
@@ -188,6 +211,14 @@ detail plain transcription would have kept. `--mt` helps twice over: the NMT
 model handles them better, and the Japanese stays on screen underneath, so a
 mangled name is still recoverable by eye.
 
+Translation quality depends heavily on the transcript being well formed, so
+`_norm()` in `subordinant/streaming.py` compares words with punctuation
+stripped. Whisper attaches a sentence mark only once it has heard enough to
+decide the sentence ended, so the same word arrives as `します` on one pass and
+`します。` on the next; comparing those literally made LocalAgreement stall at
+exactly the sentence boundaries, and what reached the translator was an
+unpunctuated run-on that it rendered badly.
+
 **English arrives a sentence at a time under `--mt`, and cannot be streamed.**
 LocalAgreement-2 commits a stable prefix, which works because transcription is
 monotonic - the words already settled never change. Translation is not: Japanese
@@ -206,6 +237,150 @@ English; raise it for fewer, longer, better-formed sentences.
 Memorised sign-offs such as "Thank you for watching!" also surface during music
 and silence. The blocklist in `subordinant/asr.py` drops them when they are a
 pass's entire output, but not when they are appended to real speech.
+
+## Why English arrives a sentence at a time
+
+Because a partial Japanese sentence does not determine an English prefix, and
+often determines its opposite. Japanese puts the verb last, and negation and
+tense are suffixes on that verb, so translating as you go means translating
+something that has not decided what it means yet. Real Sugoi output on growing
+prefixes of one sentence:
+
+```
+これは面白い               -> This is interesting.
+これは面白くない           -> This isn't funny.
+これは面白くないと         -> This has to be interesting.
+これは面白くないと思わない -> I don't think this is funny.
+```
+
+Three reversals in four passes. That is why the transcript takes whole
+utterances: LocalAgreement works on the source because ASR output is monotonic,
+and translation simply is not.
+
+**Live preview** (on by default, toggle in the toolbar) gives the continuous
+motion anyway, without putting rewrites in the record. The unfinished tail is
+translated every pass and shown above the Japanese it came from, dimmed - the
+same contract the unconfirmed source text already has. The settled translation
+still drops into the transcript when the sentence ends, unchanged.
+
+It costs 17-46 ms per pass, an added RTF of 0.03-0.09, and only re-runs when the
+tail has actually changed. Turn it off if the movement is distracting; nothing
+else changes.
+
+## Overlapping speech is the hard limit
+
+Whisper transcribes one stream. When two people talk at once it does not
+transcribe both and it does not fail loudly - it returns one of them, or a blend,
+and the words of whoever lost are simply absent. Measured over a minute of
+continuous speech with known ground truth:
+
+| audio | words lost |
+|---|---|
+| clean single speaker | 0% |
+| two speakers overlapping | 26% |
+| two speakers + background music | 39% |
+
+Nothing downstream can recover this. A missing word reaches the translator as an
+absence, not an error, so the English reads fluently and is simply wrong. If a
+line goes missing from a collab, this is almost always why - not the translator,
+and not a dropped buffer.
+
+What helps is beam search. On the same overlapping audio, `beam_size` 5 loses 15%
+where greedy loses 39%, and costs RTF 0.43 against 0.29 - latency that was never
+the binding constraint here. It is the default for that reason. On clean audio
+the two are indistinguishable, which is why the original measurement, taken on
+clean audio, concluded beams were not worth it.
+
+## Names, and why translations go wrong
+
+Most bad translations are not the translator's fault. Whisper renders a name it
+has never heard as whatever it sounds like, and the MT stage then translates that
+wrong word perfectly faithfully, so nothing downstream can tell anything happened.
+
+The **Names** box takes the words a stream will use - `ラミィ, ノエル, スバル,
+ホロライブ` - and biases the decoder before it guesses. Measured on English TTS
+with the same failure, the transcript went from
+
+```
+bare     Lamy and Noelle are talking to Sabaru about the Kolob.
+primed   Lamy and Noel are talking to Subaru about the Kolob.
+```
+
+Note that "collab" stayed wrong: only words actually in the list get fixed.
+
+Keep the list short. It occupies the same decoder context the audio competes
+for, and a long one makes Whisper start reciting the prompt instead of
+transcribing - which looks like hallucinated captions, not a bad setting.
+
+How much this is worth is visible by comparing Sugoi on clean input against the
+same lines as they came off a stream:
+
+```
+clean    自己紹介はラミィとスバルでやろうか
+         -> Shall I introduce myself with Rammy and Subaru?
+stream   ろよいいはじゃあ半分半分でやる?
+         -> Royoiha, would you like to do it in half?
+```
+
+The Japanese is already wrong in the second case. No translation model recovers
+from that, which is why the glossary matters more than the choice of translator.
+
+## Labelling who is speaking
+
+Tick **Label speakers**, or pass `--speakers`. Each line is then tagged
+`Speaker 1`, `Speaker 2` and so on, in a colour per speaker, and a change of
+voice starts a new line.
+
+The tag is the smaller half of what this buys. The larger half is that a change
+of voice becomes a hard boundary: without it, two people talking without a gap
+are handed to the translator as one unit, and one person's sentence gets finished
+by the next person's words. That is where run-ons in the transcript came from.
+
+It costs a 28 MB model and almost nothing at runtime - about 33 ms per second of
+speech on the CPU, off the GPU path, an RTF around 0.03 against Whisper's 0.31.
+
+**Set the number of people** if you know it. That cap is by far the most reliable
+control, because the thing that splits one person into several is the same person
+sounding different - shouting, laughing, putting on a voice - and no similarity
+threshold separates that from a second person cleanly. Telling it there are three
+means there cannot be a fourth.
+
+**What it cannot do.** Offline diarization clusters over a whole recording, which
+is what makes its numbering globally consistent. Live, there is no whole
+recording: each window is matched against a bank of running centroids and
+labelled on the spot. So
+
+- **numbers are not names.** They are assigned in the order people are first
+  heard.
+- **numbers can drift.** Someone quiet for a long stretch may not match their old
+  centroid closely enough and comes back as a new number.
+- **overlapping speech breaks it.** Two people talking over each other produce one
+  embedding belonging to neither. A collab is full of this.
+- **background music and game audio** pollute the embeddings.
+- **it hears voices, not intent.** If one person reads out another's lines, the
+  labels will be right and still look wrong.
+
+Tuning lives in `config.json`. The two that matter:
+
+`diarize_window_sec` (3 s) is how much speech goes into one embedding, and it is
+the biggest single lever on over-splitting. Measured on two voices, the *lowest*
+same-speaker similarity was 0.24 at a 1 s window, 0.61 at 1.5 s, 0.74 at 2 s and
+0.85 at 3 s, while the highest between-speaker similarity barely moved (0.25 ->
+0.21). Short windows make one voice look like a stranger. `diarize_hop_sec` (1 s)
+is kept well below it so a change of voice can still be placed to within a
+second: each hop embeds three seconds of context but labels only the last one.
+
+`diarize_threshold` (0.5) is the similarity at which a window is judged to be
+someone already known: lower it when one person keeps splitting in two, raise it
+when two people share a label. Note this is the opposite direction to the speaker
+cap, which is usually the better tool.
+
+Two smaller rules are worth knowing because they show up as behaviour. A new
+voice is only given a number once a **second** window agrees with the first - the
+window spanning a hand-off contains two voices and matches neither, and left alone
+it became a permanent extra identity between two real people. And a word in a
+brief unlabelled gap adopts the turn around it, so a short pause does not strip
+the label off the line.
 
 ## Building the distributable
 
@@ -228,6 +403,21 @@ subprocess to walk binary dependencies, and that subprocess has already imported
 PyQt6 - so `_sentencepiece.pyd` binds to Qt's vendored MSVC runtime and dies with
 an access violation, the same collision described below. The app avoids it by
 pinning the system runtime before Qt loads; the analysis subprocess cannot.
+`sherpa_onnx` was checked for the same problem and does not have it, so it is a
+plain hidden import.
+
+### Checking a packaged build
+
+```
+build\dist-next\SubOrdinant\SubOrdinant-debug.exe --selftest --speakers --mt --language ja
+```
+
+Loads every model, opens the audio device, prints what worked, and exits without
+a window. Worth running after any packaging change, because the failures
+packaging introduces are DLL conflicts - they fault the process instead of
+raising, so a bundle can build cleanly and still die the moment a model is
+constructed. Use the debug executable: the windowed one has no console for the
+output to reach.
 
 ## Configuration
 
@@ -241,12 +431,21 @@ Every setting in `subordinant/config.py` can be overridden from
 The settings worth touching:
 
 - `model` - `distil-large-v3` is faster, `large-v3` is needed for `translate`
+- `initial_prompt` - names and terms to expect; the Names box writes this
 - `mt_enabled` - translate utterances with a dedicated NMT model (`--mt`)
 - `mt_model` - the NMT model; defaults to Sugoi v4 JA->EN
 - `mt_source_lang` / `mt_target_lang` - which SentencePiece pair to load
 - `mt_beam_size` - beam search is nearly free here; it runs per utterance
 - `mt_max_utterance_sec` - translate unpunctuated speech after this long
 - `mt_repetition_penalty`, `mt_no_repeat_ngram_size` - stop NMT repeat loops
+- `diarize_enabled` - label lines with who said it (`--speakers`)
+- `diarize_max_speakers` - how many people are talking; the most useful setting
+- `diarize_window_sec` - speech per embedding; short windows over-split
+- `diarize_hop_sec` - how precisely a change of voice can be placed
+- `diarize_threshold` - lower to split fewer speakers, raise to merge fewer
+- `mt_min_chunk_sec` - ignore speaker changes that would strand a fragment
+- `mt_live_enabled` - preview the unfinished tail; the toolbar toggles it
+- `beam_size` - 5 by default; 1 loses 39% of words on overlapping speech
 - `compute_type` - `int8_float16` roughly halves VRAM at a small accuracy cost
 - `process_interval_sec` - lower is more responsive and more GPU work
 - `max_buffer_sec` - longer context is more accurate but pushes RTF towards 1.0
@@ -296,11 +495,15 @@ last committed word is discarded.
 - **Bundle size.** The CUDA libraries alone are ~1.3 GB, before the 1.6 GB of
   model weights. This is not a small download.
 - **No console in the packaged build.** `SubOrdinant.exe` is windowed, so
-  `sys.stdout` and `sys.stderr` are `None`. Logs go to
+  `sys.stdout` and `sys.stderr` start out `None`. Logs go to
   `%APPDATA%\SubOrdinant\subordinant.log` and native faults to `crash.log`
-  beside it. Anything constructing a `StreamHandler`, or calling
-  `faulthandler.enable()` with no argument, breaks that build and only that
-  build - run `SubOrdinant-debug.exe` to get the same output on a console.
+  beside it; `main.py` then replaces the streams with real files, because
+  libraries write to them without checking - huggingface_hub's download progress
+  bars did exactly that and hung the app on "loading translation model...".
+  Code that needs to know whether a console exists must ask
+  `logsetup.has_console()`, which checks `sys.__stderr__`; `sys.stderr` is the
+  substitute and will lie. Run `SubOrdinant-debug.exe` for the same output on a
+  real console.
 
 ## Implementation notes
 

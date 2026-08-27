@@ -19,6 +19,16 @@ soxr==0.5.0.post1
 # the only extra dependency translation costs.
 sentencepiece==0.2.2
 
+# Speaker embeddings for the labelling stage (subordinant/diarize.py). Chosen
+# over pyannote.audio because that needs PyTorch (~2.5 GB) and a gated model
+# download, either of which would end the double-click-to-run story.
+sherpa-onnx==1.13.6
+# Pulled in by faster-whisper for its Silero VAD, but pinned here because
+# sherpa-onnx binds to this DLL directly. Windows 11 ships its own, older
+# onnxruntime.dll in System32, and sherpa-onnx segfaults against it - see
+# cuda.preload_onnxruntime for how the right copy is pinned.
+onnxruntime==1.29.0
+
 numpy==2.2.1
 
 # Overlay window

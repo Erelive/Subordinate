@@ -24,8 +24,28 @@ from .config import SAMPLE_RATE, Config
 log = logging.getLogger(__name__)
 
 
+# Sentence and clause marks, in both the Japanese and ASCII forms Whisper emits.
+_PUNCT = "。、．，…「」『』.,!?！？;:；："
+
+
 def _norm(text: str) -> str:
-    return text.strip().lower()
+    """Normalise a word for the agreement comparison, ignoring punctuation.
+
+    Whisper attaches a sentence mark only once it has heard enough to decide the
+    sentence ended, so the same word arrives as 'します' on one pass and
+    'します。' on the next. Comparing those literally makes LocalAgreement stall
+    at exactly the sentence boundaries - the words whose punctuation matters most
+    - and what finally reaches the caption, and the translation stage after it,
+    is an unpunctuated run-on.
+
+    Ignoring the marks here lets the word commit, and because flush() keeps the
+    incoming copy, the punctuated form is the one that survives.
+    """
+    stripped = text.strip().lower()
+    core = stripped.strip(_PUNCT)
+    # A token that is nothing but punctuation still has to compare as itself,
+    # or every one of them would normalise to "" and match each other.
+    return core or stripped
 
 
 class HypothesisBuffer:
@@ -172,8 +192,15 @@ class StreamingTranscriber:
         committed = [w for w in self.hypothesis.committed if w.end >= cutoff]
         return committed, self.hypothesis.unstable
 
-    def prune_history(self, keep_sec: float) -> None:
-        cutoff = self.stream_time - keep_sec
+    def prune_history(self, keep_sec: float, not_before: float = float("inf")) -> None:
+        """Drop settled words older than keep_sec, but never past `not_before`.
+
+        The caller passes how far translation has got as `not_before`. Without
+        it, a long stretch of unbroken speech can push words out of this list
+        before the MT stage ever sees them, and the utterance simply vanishes -
+        no source line, no English, nothing to notice it by.
+        """
+        cutoff = min(self.stream_time - keep_sec, not_before)
         if len(self.hypothesis.committed) > 512:
             self.hypothesis.committed = [
                 w for w in self.hypothesis.committed if w.end >= cutoff

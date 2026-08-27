@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import asdict, dataclass, fields
+from dataclasses import dataclass, fields
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -37,7 +37,29 @@ class Config:
     # full model - see translate_warning() in asr.py. Prefer mt_enabled below:
     # a dedicated NMT model translates better and costs less than this does.
     task: str = "transcribe"
-    beam_size: int = 1  # greedy; beams cost latency for little gain here
+    # Beam search. This was 1 on the grounds that beams cost latency for little
+    # gain - which was measured on clean single-speaker audio, where it is true
+    # and useless. On overlapping speech, which is what a collab actually is,
+    # greedy decoding loses 39% of the words and beam 5 loses 15%:
+    #
+    #     beam 1   39% lost   146 ms at a full 12 s buffer   RTF 0.29
+    #     beam 2   24% lost
+    #     beam 3   24% lost
+    #     beam 5   15% lost   216 ms                         RTF 0.43
+    #
+    # Clean audio is unchanged either way (203/204 words). RTF 0.43 leaves ample
+    # headroom, so the cost is latency that was never the binding constraint.
+    beam_size: int = 5
+    # Text shown to Whisper before each pass, to bias it towards words it would
+    # otherwise mishear. Proper nouns are the case that matters: a name it has
+    # never seen comes out as whatever it sounds like, and the translation stage
+    # then faithfully translates the wrong word, so the error is invisible by
+    # the time anyone reads it.
+    #
+    # Keep it short. The prompt occupies the same decoder context the audio
+    # competes for, and a long one makes Whisper start reciting it instead of
+    # transcribing - the failure looks like hallucinated captions.
+    initial_prompt: str = ""
 
     # --- translation ---
     # Translate committed utterances with a dedicated NMT model instead of
@@ -65,6 +87,73 @@ class Config:
     # This is the backstop: translate whatever has accumulated once it spans
     # this long, sentence boundary or not.
     mt_max_utterance_sec: float = 6.0
+    # Don't cut a translation unit at a change of voice if what comes before it
+    # is shorter than this. A word or two stranded ahead of a speaker change is
+    # nearly always the tail of the previous turn caught by a boundary window,
+    # not a real turn of its own; translating it alone yields nothing useful and
+    # consumes the text, so the caption goes missing entirely.
+    mt_min_chunk_sec: float = 0.8
+    # Translate the unfinished tail every pass and show it as a live preview,
+    # so English moves continuously instead of arriving a sentence at a time.
+    #
+    # This cannot go in the transcript, and the reason is structural rather than
+    # a matter of polish. LocalAgreement works because ASR output is monotonic:
+    # a committed prefix stays put. Translation is not monotonic, and Japanese is
+    # near the worst case - the verb is last, and negation and tense are suffixes
+    # on it, so a partial sentence can translate to the opposite of the finished
+    # one. Measured with Sugoi:
+    #
+    #     これは面白い          -> This is interesting.
+    #     これは面白くない      -> This isn't funny.
+    #     これは面白くないと思わない -> I don't think this is funny.
+    #
+    # So the preview is shown where rewriting is already the contract - beside
+    # the unconfirmed source tail, dimmed - while the transcript keeps taking
+    # whole utterances and never rewrites.
+    mt_live_enabled: bool = True
+    # Don't preview less than this much source text: a two-word fragment
+    # translates to noise and just makes the line flicker.
+    mt_live_min_chars: int = 4
+
+    # --- speaker labelling ---
+    # Label each utterance with who said it, and cut translation units at a
+    # change of voice. See subordinant/diarize.py for why the labels drift.
+    diarize_enabled: bool = False
+    # One file out of csukuangfj/speaker-embedding-models. CAM++ trained on
+    # Chinese and English, 28 MB: the closest thing on offer to multilingual,
+    # which matters because the audio languages here are ja/zh/ko as well as en.
+    # Speaker embeddings key on timbre rather than phonetics, so they transfer
+    # across languages better than an ASR model would.
+    diarize_model: str = "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
+    # How much speech goes into one embedding. This is the single biggest lever
+    # on whether one person gets mistaken for two. Measured on two real voices,
+    # the *lowest* same-speaker similarity was 0.24 at a 1 s window, 0.61 at
+    # 1.5 s, 0.74 at 2 s and 0.85 at 3 s, while the highest between-speaker
+    # similarity barely moved (0.25 -> 0.21). Short windows are what make the
+    # same voice look like a stranger.
+    diarize_window_sec: float = 3.0
+    # How much stream time each label covers. Kept well below the window so a
+    # change of voice can be placed to within a second while still being decided
+    # on three seconds of context. Costs one embedding (~33 ms) per hop.
+    diarize_hop_sec: float = 1.0
+    # Never classify on less audio than this. Below it, same-speaker similarity
+    # is no better than between-speaker, so a label would be a coin flip - and a
+    # wrong one opens a speaker that never goes away.
+    diarize_min_embed_sec: float = 2.0
+    # Cosine similarity at which a window is judged to be an existing speaker
+    # rather than a new one. At the 3 s window above, same-speaker stayed above
+    # 0.85 and different-speaker below 0.21, so 0.5 sits in open space. That was
+    # two TTS voices, male against female - the easy case. Lower this if one
+    # person keeps turning into several; raise it if two people share a label.
+    diarize_threshold: float = 0.5
+    # Past this many, the closest match wins instead of a new speaker opening.
+    # The most effective setting here when the answer is known: three people in
+    # a collab means 3, and no amount of shouting can then invent a fourth.
+    diarize_max_speakers: int = 6
+    # Windows quieter than this never reach the model. Room tone and music
+    # produce embeddings that are not about a voice, and admitting them drags
+    # the centroids together until distinct speakers merge.
+    diarize_min_rms: float = 0.005
 
     # --- streaming ---
     # How much fresh audio to accumulate before running inference again. Lower
@@ -140,7 +229,29 @@ class Config:
         return cfg
 
     def save(self) -> Path:
+        """Write the settings that differ from the defaults, and only those.
+
+        Writing every field looks harmless and is not: the app saves on exit, so
+        one run freezes the whole default set into the user's config, and every
+        default tuned afterwards is silently overridden on their machine
+        forever. That happened - diarize_window_sec was raised from 1.5 s to 3 s
+        to stop one speaker being split into several, and installs that had run
+        once kept the old value and the old bug.
+
+        Recording only what was actually chosen keeps the file a statement of
+        intent, so defaults stay live.
+        """
         path = config_dir() / "config.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
+        defaults = type(self)()
+        chosen = {
+            f.name: getattr(self, f.name)
+            for f in fields(self)
+            if getattr(self, f.name) != getattr(defaults, f.name)
+        }
+        # ensure_ascii=False so a Japanese name glossary stays readable in the
+        # file rather than turning into a wall of \u escapes.
+        path.write_text(
+            json.dumps(chosen, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         return path
