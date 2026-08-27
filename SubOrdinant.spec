@@ -49,8 +49,26 @@ for dll in SITE_PACKAGES.glob("nvidia/*/bin/*.dll"):
 # Silero VAD ONNX weights and the tokenizer files faster-whisper ships.
 datas += collect_data_files("faster_whisper")
 
-for package in ("onnxruntime", "av", "pyaudiowpatch", "soxr", "sentencepiece"):
+for package in ("onnxruntime", "av", "pyaudiowpatch", "soxr"):
     binaries += collect_dynamic_libs(package)
+
+# sentencepiece is copied by hand rather than declared as a hidden import.
+#
+# PyInstaller imports every collected package in one isolated subprocess to walk
+# its binary dependencies, and that subprocess has already imported PyQt6. Qt puts
+# its vendored MSVC runtime on the DLL search path, _sentencepiece.pyd binds to
+# that instead of the system build, and the subprocess dies with an access
+# violation (0xC0000005) - the same collision described at the top of this file.
+# The app avoids it by pinning the system runtime in subordinant/__init__ before
+# Qt loads; PyInstaller's analysis subprocess has no such protection and no hook
+# to add one.
+#
+# Copying the files directly keeps the package out of that import list. It is
+# safe because sentencepiece has nothing to discover: one statically linked .pyd
+# and a few pure-Python modules, no sibling DLLs.
+SENTENCEPIECE = SITE_PACKAGES / "sentencepiece"
+binaries += [(str(p), "sentencepiece") for p in SENTENCEPIECE.glob("*.pyd")]
+datas += [(str(p), "sentencepiece") for p in SENTENCEPIECE.glob("*.py")]
 
 a = Analysis(
     ["main.py"],
@@ -61,15 +79,20 @@ a = Analysis(
         "subordinant",
         "pyaudiowpatch",
         "soxr",
-        # The translation stage. Imported lazily inside Translator.__init__, so
-        # PyInstaller's static analysis does not find either of these.
-        "sentencepiece",
+        # Imported lazily inside Translator.__init__, so static analysis misses
+        # it. sentencepiece is deliberately absent - see the note above.
         "huggingface_hub",
     ],
     hookspath=[],
     runtime_hooks=[],
-    # Pulled in transitively but unused, and each costs tens of megabytes.
     excludes=[
+        # Excluded from analysis, not from the bundle - the files are copied in
+        # by hand above. PyInstaller's modulegraph scans bytecode, so it finds
+        # the lazy import inside Translator.__init__ even without a hidden
+        # import, and importing it for dependency analysis crashes the isolated
+        # subprocess. See the note beside SENTENCEPIECE above.
+        "sentencepiece",
+        # Pulled in transitively but unused, and each costs tens of megabytes.
         "tkinter",
         "matplotlib",
         "scipy",

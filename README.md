@@ -45,8 +45,35 @@ python -m venv .venv
 First launch downloads ~1.6 GB of model weights to the Hugging Face cache.
 `tools.fetch_model` does that ahead of time.
 
-The overlay is click-through and has no taskbar button, so the **tray icon is the
-only way to pause or quit it**.
+The app opens a window holding the running transcript. Both languages stay there
+for the session, so the original can be checked after the fact - which is the
+point when a translation mangles a name. The toolbar has opacity, pin-on-top and
+pause; scrolling up to read back will not be interrupted by new text arriving.
+
+**Audio language** and **Translate with** are set in the window, so a
+double-clicked build needs no command line. The three engines are:
+
+| | What runs | Notes |
+|---|---|---|
+| **Sugoi v4** | turbo transcribes, Sugoi translates | recommended; RTF 0.31, keeps the source text |
+| **Whisper large-v3** | one model, `task=translate` | English only, RTF 0.92 |
+| **No translation** | turbo transcribes | source language only |
+
+Changing either reloads models, so it takes effect on **Apply** rather than
+immediately, and the pipeline restarts - a few seconds of no captions.
+
+### Why a window rather than an overlay
+
+The overlay draws on the primary screen and cannot do better: system audio is one
+mixed stream with no screen affinity, so nothing in it says which monitor the
+sound came from. With a video on the second screen and a game on the first, the
+captions land over the game - and an always-on-top window cannot draw over an
+exclusive-fullscreen game at all. A window you place solves both, because the
+only party who knows where the captions belong is you.
+
+The overlay is still there for single-screen full-screen viewing, where there is
+nothing to collide with. Enable it with `overlay_enabled` in the config. It is
+click-through and has no taskbar button, so the tray icon controls it.
 
 ### Useful commands
 
@@ -186,8 +213,21 @@ pass's entire output, but not when they are appended to real speech.
 .venv\Scripts\pyinstaller.exe SubOrdinant.spec --noconfirm
 ```
 
-Output lands in `dist\SubOrdinant\`. Model weights are not bundled - the app
-fetches them on first run.
+Close any running build first. Windows keeps loaded DLLs locked, so a live
+`SubOrdinant.exe` makes the rebuild fail with `PermissionError: [WinError 5]` on
+a `.pyd` under `dist\SubOrdinant\_internal\`.
+
+Output lands in `dist\SubOrdinant\` - `SubOrdinant.exe` to double-click, plus
+`SubOrdinant-debug.exe` with a console attached, because a failure inside a
+bundled native library is otherwise completely silent. Model weights are not
+bundled; the app fetches them on first run.
+
+Note what the spec does with `sentencepiece`: it is copied by hand and excluded
+from analysis. PyInstaller imports every collected package in one isolated
+subprocess to walk binary dependencies, and that subprocess has already imported
+PyQt6 - so `_sentencepiece.pyd` binds to Qt's vendored MSVC runtime and dies with
+an access violation, the same collision described below. The app avoids it by
+pinning the system runtime before Qt loads; the analysis subprocess cannot.
 
 ## Configuration
 
@@ -211,6 +251,8 @@ The settings worth touching:
 - `process_interval_sec` - lower is more responsive and more GPU work
 - `max_buffer_sec` - longer context is more accurate but pushes RTF towards 1.0
 - `font_size`, `max_width_frac`, `bottom_margin_frac` - overlay placement
+- `overlay_enabled` - draw the click-through overlay as well as the window
+- `window_opacity`, `window_on_top` - written back when the app exits
 
 ## How it works
 
@@ -242,8 +284,10 @@ last committed word is discarded.
 
 ## Known limits
 
-- **Exclusive-fullscreen games.** An always-on-top window cannot draw over them.
-  Borderless-windowed mode works.
+- **Exclusive-fullscreen games.** Affects the optional overlay only: an
+  always-on-top window cannot draw over them, and borderless-windowed mode works.
+  The main window sidesteps this - put it on another monitor and nothing tries to
+  draw over the game at all.
 - **Output device changes.** Switching the default output device while running is
   not picked up; restart the app.
 - **Music and singing.** Whisper will sometimes produce lyrics-shaped text from
@@ -251,6 +295,12 @@ last committed word is discarded.
   memorised phrases ("Thanks for watching!"), but not all of it.
 - **Bundle size.** The CUDA libraries alone are ~1.3 GB, before the 1.6 GB of
   model weights. This is not a small download.
+- **No console in the packaged build.** `SubOrdinant.exe` is windowed, so
+  `sys.stdout` and `sys.stderr` are `None`. Logs go to
+  `%APPDATA%\SubOrdinant\subordinant.log` and native faults to `crash.log`
+  beside it. Anything constructing a `StreamHandler`, or calling
+  `faulthandler.enable()` with no argument, breaks that build and only that
+  build - run `SubOrdinant-debug.exe` to get the same output on a console.
 
 ## Implementation notes
 

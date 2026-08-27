@@ -89,6 +89,17 @@ class Config:
     energy_gate_db: float = -48.0
     vad_filter: bool = True
 
+    # --- window ---
+    # The main window is the default surface. The overlay draws on the primary
+    # screen and cannot know better - system audio is one mixed stream with no
+    # screen affinity - so on a multi-monitor setup it puts captions for a video
+    # on one screen over whatever is on the other, and it cannot draw over an
+    # exclusive-fullscreen game at all. Enable it for single-screen full-screen
+    # viewing, where there is nothing to collide with.
+    overlay_enabled: bool = False
+    window_opacity: int = 100  # percent; the window's slider writes this back
+    window_on_top: bool = False
+
     # --- overlay ---
     font_family: str = "Segoe UI"
     font_size: int = 26
