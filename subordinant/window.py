@@ -451,6 +451,17 @@ class TranscriptWindow(QMainWindow):
         )
         bar.addWidget(self._live_preview)
 
+        # Also outside Apply: switching the overlay on or off only connects or
+        # disconnects an already-built widget, so it costs nothing to reload.
+        self._overlay = QCheckBox("Screen overlay")
+        self._overlay.setToolTip(
+            "Draw captions directly on the screen as well as here.\n"
+            "Click-through, and always on the primary monitor - system audio\n"
+            "carries nothing that says which screen it came from. It cannot\n"
+            "draw over an exclusive-fullscreen game; borderless windowed works."
+        )
+        bar.addWidget(self._overlay)
+
         bar.addSpacing(8)
         bar.addWidget(QLabel("Opacity"))
         self._opacity = QSlider(Qt.Orientation.Horizontal)
@@ -492,13 +503,22 @@ class TranscriptWindow(QMainWindow):
     def live_preview_box(self) -> QCheckBox:
         return self._live_preview
 
+    @property
+    def overlay_box(self) -> QCheckBox:
+        return self._overlay
+
     def apply_settings(
-        self, opacity_pct: int, on_top: bool, live_preview: bool = True
+        self,
+        opacity_pct: int,
+        on_top: bool,
+        live_preview: bool = True,
+        overlay: bool = False,
     ) -> None:
         """Apply saved window settings without going through the widgets twice."""
         self._opacity.setValue(max(MIN_OPACITY, min(100, opacity_pct)))
         self._pin.setChecked(on_top)
         self._live_preview.setChecked(live_preview)
+        self._overlay.setChecked(overlay)
 
     def current_settings(self) -> tuple[int, bool]:
         """Opacity percent and pin state, for writing back to the config."""

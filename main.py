@@ -276,14 +276,49 @@ def main(argv: list[str] | None = None) -> int:
             window.add_source_only, Qt.ConnectionType.QueuedConnection
         )
 
-    overlay = CaptionOverlay(cfg) if cfg.overlay_enabled else None
-    if overlay is not None:
-        bridge.caption.connect(overlay.set_caption, Qt.ConnectionType.QueuedConnection)
-        bridge.translation.connect(
-            overlay.set_translation, Qt.ConnectionType.QueuedConnection
-        )
+    # Built whether or not it is switched on: an unshown QWidget costs nothing,
+    # and constructing it up front is what lets the toolbar toggle take effect
+    # without a restart. What actually turns it off is disconnecting it - a
+    # merely hidden overlay would still run its full relayout-and-repaint on
+    # every caption, which is the cost the toggle exists to avoid.
+    overlay = CaptionOverlay(cfg)
 
-    window.apply_settings(cfg.window_opacity, cfg.window_on_top, cfg.mt_live_enabled)
+    def set_overlay_enabled(on: bool) -> None:
+        cfg.overlay_enabled = on  # saved on exit, so the choice survives a restart
+        if on:
+            bridge.caption.connect(
+                overlay.set_caption, Qt.ConnectionType.QueuedConnection
+            )
+            bridge.translation.connect(
+                overlay.set_translation, Qt.ConnectionType.QueuedConnection
+            )
+            bridge.live_translation.connect(
+                overlay.set_live_translation, Qt.ConnectionType.QueuedConnection
+            )
+            return
+        try:
+            bridge.caption.disconnect(overlay.set_caption)
+            bridge.translation.disconnect(overlay.set_translation)
+            bridge.live_translation.disconnect(overlay.set_live_translation)
+        except TypeError:
+            pass  # not connected
+        # Clear as well as hide: otherwise switching back on redisplays the line
+        # that was on screen when it went off, until the next caption arrives.
+        overlay.clear()
+        overlay.hide()
+
+    window.overlay_box.toggled.connect(set_overlay_enabled)
+    # apply_settings drives the checkbox, whose toggled signal then runs
+    # set_overlay_enabled - but only if the value changes from the unchecked
+    # default, so call it directly rather than relying on that.
+    set_overlay_enabled(cfg.overlay_enabled)
+
+    window.apply_settings(
+        cfg.window_opacity,
+        cfg.window_on_top,
+        cfg.mt_live_enabled,
+        cfg.overlay_enabled,
+    )
     window.show()
 
     if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -379,7 +414,8 @@ def main(argv: list[str] | None = None) -> int:
             window.pause_box.setChecked(checked)
         finally:
             syncing = False
-        if checked and overlay is not None:
+        if checked:
+            # Harmless when the overlay is switched off - it is already hidden.
             overlay.clear()
             overlay.hide()
         tray.setToolTip("SubOrdinant - paused" if checked else "SubOrdinant - listening")
@@ -393,7 +429,11 @@ def main(argv: list[str] | None = None) -> int:
         # in-flight pass uses the previous value.
         cfg.mt_live_enabled = enabled
         if not enabled:
+            # _flush_live returns early once this is off, so it never emits the
+            # empty preview that would clear these. Do it here or the last guess
+            # stays on screen for the rest of the session.
             window.set_live_translation("")
+            overlay.set_live_translation("")
 
     window.live_preview_box.toggled.connect(on_live_preview)
 

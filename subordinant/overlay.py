@@ -97,6 +97,10 @@ class CaptionOverlay(QWidget):
         self._committed = ""
         self._unstable = ""
         self._translation = ""
+        # Kept so an utterance whose translation came back empty can still show
+        # something - see _render. Only consulted in that case.
+        self._translation_source = ""
+        self._live_translation = ""
 
     # -- content -----------------------------------------------------------
 
@@ -107,6 +111,11 @@ class CaptionOverlay(QWidget):
         if committed == self._committed and unstable == self._unstable:
             return
         self._committed, self._unstable = committed, unstable
+        # Stored but not drawn while MT is on: _lines() shows English only, so
+        # rendering here would redo the whole relayout and repaint twice a
+        # second for text that never reaches the screen.
+        if self.cfg.mt_enabled:
+            return
         self._render()
 
     @pyqtSlot(str, str, int)
@@ -116,55 +125,91 @@ class CaptionOverlay(QWidget):
         """Show the English for the utterance that just closed.
 
         Replaces rather than appends: one finished sentence at a time is what
-        the MT stage produces, and the source text above it is already the
-        running context.
+        the MT stage produces.
 
         The speaker id is accepted and ignored. The overlay shows one line over
         a video, where a "Speaker 2" tag costs more width than it earns; the
         transcript window is where labelling pays off.
         """
-        english = english.strip()
-        if english == self._translation:
+        english, source = english.strip(), source.strip()
+        if english == self._translation and source == self._translation_source:
             return
         self._translation = english
+        self._translation_source = source
         self._render()
 
-    def _render(self) -> None:
-        committed, unstable = self._committed, self._unstable
-        translation = self._translation
+    @pyqtSlot(str)
+    def set_live_translation(self, english: str) -> None:
+        """English for speech still in progress, shown dimmed under the settled
+        line so the overlay keeps moving between finished utterances.
 
-        if not committed and not unstable and not translation:
+        This rewrites itself, sometimes reversing meaning - a partial Japanese
+        sentence does not determine an English prefix. It gets the unstable
+        colour for exactly the reason the unconfirmed source tail used to: it is
+        a guess, and the styling is the contract that says so.
+        """
+        english = english.strip()
+        if english == self._live_translation:
+            return
+        self._live_translation = english
+        self._render()
+
+    def _segments(self) -> tuple[list[tuple[str, str]], str]:
+        """The (text, colour) runs to draw, and what goes between them.
+
+        Unlike the transcript window, the overlay does not show the source text
+        alongside the English. It sits over video, where a second language is
+        one more thing between the viewer and the picture; the window is where
+        the Japanese is kept for checking a name after the fact.
+        """
+        if not self.cfg.mt_enabled:
+            # No second language to drop here - either the engine is set to no
+            # translation, or Whisper is translating directly and this text is
+            # already English. Separated by a space, not a line break: the
+            # unconfirmed tail continues the committed sentence, and breaking it
+            # would read as two utterances rather than one settling.
+            return (
+                [
+                    (self._committed, self.cfg.committed_color),
+                    (self._unstable, self.cfg.unstable_color),
+                ],
+                " ",
+            )
+
+        # An utterance whose translation came back empty still happened, and a
+        # blank overlay would simply lose it. Showing the source is the same
+        # fallback the transcript makes, for the same reason.
+        settled = self._translation or self._translation_source
+        # A line break here, because the preview is a fresh guess at the *next*
+        # sentence rather than a continuation of the settled one - running them
+        # together would read as a single sentence that keeps rewriting itself.
+        return (
+            [
+                (settled, self.cfg.committed_color),
+                (self._live_translation, self.cfg.unstable_color),
+            ],
+            "<br>",
+        )
+
+    def _render(self) -> None:
+        segments, separator = self._segments()
+        segments = [(text, color) for text, color in segments if text]
+
+        if not segments:
             self._idle.start(int(self.cfg.hide_after_idle_sec * 1000))
             return
         self._idle.stop()
 
-        pieces = []
-        if translation:
-            # The translation is what the viewer is here to read, so it gets the
-            # committed colour and the transcription drops to the dim one - the
-            # source text is reference, not the caption.
-            pieces.append(
-                f'<span style="color:{self.cfg.committed_color}">'
-                f"{html.escape(translation)}</span><br>"
-            )
-        source_color = (
-            self.cfg.unstable_color if translation else self.cfg.committed_color
-        )
-        if committed:
-            pieces.append(
-                f'<span style="color:{source_color}">{html.escape(committed)}</span>'
-            )
-        if unstable:
-            pieces.append(
-                f'<span style="color:{self.cfg.unstable_color}">'
-                f"{html.escape(unstable)}</span>"
-            )
+        pieces = [
+            f'<span style="color:{color}">{html.escape(text)}</span>'
+            for text, color in segments
+        ]
         # Zero margins: QTextDocument's default paragraph margins otherwise leave
         # a band of dead space under the last line. Line spacing is applied
         # through QTextBlockFormat rather than CSS - Qt's rich text does not read
         # a CSS line-height the way a browser does, and setting it there produces
         # wildly wrong block heights.
-        self._doc.setHtml('<p style="margin:0">' + " ".join(pieces) + "</p>")
+        self._doc.setHtml('<p style="margin:0">' + separator.join(pieces) + "</p>")
         cursor = QTextCursor(self._doc)
         cursor.select(QTextCursor.SelectionType.Document)
         block = QTextBlockFormat()
@@ -179,7 +224,18 @@ class CaptionOverlay(QWidget):
 
     def clear(self) -> None:
         self._translation = ""
-        self.set_caption("", "")
+        self._translation_source = ""
+        self._live_translation = ""
+        self._committed = ""
+        self._unstable = ""
+        # Blanked directly rather than through _render(). Going quiet leaves the
+        # last caption up for hide_after_idle_sec so it stays readable a moment
+        # after the talking stops, which _render implements by returning without
+        # touching the document - correct there, wrong here. clear() is pause and
+        # switch-off, where the text should go immediately.
+        self._idle.stop()
+        self._doc.setHtml("")
+        self.update()
 
     # -- geometry ----------------------------------------------------------
 
