@@ -134,7 +134,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--llm-model",
         dest="llm_model",
-        help="Ollama tag for --mt-backend llm, e.g. qwen3:4b-instruct. Use "
+        help="Ollama tag for --mt-backend llm, e.g. qwen3:4b-instruct or "
+        "hf.co/sugoitoolkit/Sugoi-14B-Ultra-GGUF:Q4_K_M. Use "
         "an instruct tag: a reasoning model deliberates instead of "
         "translating, and the deliberation lands in the captions",
     )

@@ -72,10 +72,11 @@ utterances Kotoba scored 89.84 / 89.77 / 89.79 percent at beam 5 / 10 / 20.
 |---|---|---|
 | **Sugoi v4** (utterance 2 / 3 / 5 / 8 / 10 s) | Whisper transcribes, Sugoi translates | the fast default; 46 ms a line, keeps the source text |
 | **Qwen3 4B Instruct** (utterance 3 / 5 s) | Whisper transcribes, a local LLM translates | needs Ollama; 116 ms a line, and sees the preceding lines, so names hold |
+| **Sugoi 14B Ultra** (utterance 3 / 5 s) | Whisper transcribes, a ja->en specialist LLM translates | needs Ollama and 9 GB of VRAM; the most accurate option, 182 ms a line |
 | **Whisper large-v3** | one model, `task=translate` | English only, RTF 1.31 - see below; locks the transcriber to large-v3 |
 | **No translation** | transcription only | source language only |
 
-### The Qwen3 engines
+### The LLM engines
 
 Sugoi is a 300M NMT model that sees one sentence and nothing else, and its two
 standing failures both come from that: it renames the same character on every
@@ -105,6 +106,46 @@ its opening tag already eaten by the template, where nothing can strip it and it
 renders verbatim as captions. `-instruct` never reasons, so the question does
 not arise. There is no `qwen3:8b-instruct`; `qwen2.5:7b-instruct` is the nearest
 larger non-reasoning model.
+
+#### Sugoi 14B Ultra
+
+`Sugoi-14B-Ultra` is a Japanese-to-English specialist fine-tune rather than a
+general instruction model, and it is the most accurate engine here. It is not in
+Ollama's own library - there is no `sugoi` entry there - so it comes from Hugging
+Face, which Ollama resolves itself from the `hf.co/` prefix:
+
+```
+ollama pull hf.co/sugoitoolkit/Sugoi-14B-Ultra-GGUF:Q4_K_M
+```
+
+`Q4_K_M` is 9.0 GB and the right quantisation for a 16 GB card: `Q8_0` is 15.7 GB
+and leaves nothing for Whisper beside it, and `Q2_K` at 5.8 GB gives the accuracy
+back. **This engine wants 12 GB of VRAM or better.** Below that Ollama offloads
+layers to the CPU and the per-line cost stops being a caption delay and starts
+being seconds.
+
+Measured on a 4080 SUPER, fully GPU-resident, same eight lines through the app's
+own prompt path:
+
+| | mean | median | max |
+|---|---|---|---|
+| Qwen3 4B Instruct | 97 ms | 94 ms | 161 ms |
+| Sugoi 14B Ultra | 182 ms | 177 ms | 267 ms |
+
+Twice the cost of the 4B for output that is consistently more idiomatic -
+*"My hair doesn't cooperate, and it gets tangled easily"* against the 4B's
+*"My hair doesn't stay styled well, and it tends to tangle"*. Both sit far inside
+the per-utterance budget, so on a card that fits it there is little reason to
+prefer the smaller model.
+
+The model card recommends its own system prompt, a localizer framing that asks
+for colloquial and slang vocabulary. It is not used. The app's prompt is kept
+instead because it carries the one instruction the card's does not - that the
+line comes from live speech, may be cut off mid-sentence, and must never have an
+ending invented for it - which is the difference between a caption and a
+hallucination on ASR fragments. Measured, the card prompt was also slower
+(208 ms) and drifted on content: it rendered 大変そう as "it's going to be a
+hassle" where the app prompt gave the correct "it seems harder than usual".
 
 Nothing else changes - the weights live in Ollama rather than in this process,
 so the app gains no new Python dependency and the bundle does not grow. If the

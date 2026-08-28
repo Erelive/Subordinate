@@ -108,7 +108,7 @@ ENGINE_IDENTITY = (
 # the switch: leave mt_async off the Sugoi entries and picking Qwen3 once turns
 # Sugoi async for the rest of the session, silently and with no control showing
 # it. _SHARED is spread into each entry so that cannot happen by omission.
-_SUGOI = {
+_SUGOI_NMT = {
     "mt_enabled": True,
     "task": "transcribe",
     "mt_backend": "ct2",
@@ -119,7 +119,13 @@ _SUGOI = {
     "mt_live_enabled": True,
 }
 
-_QWEN = {
+# Shared by every engine that translates through Ollama, whatever the model -
+# a general instruction model (Qwen3) or a translation specialist (Sugoi 14B).
+# Named for the backend rather than the model because the two forced settings
+# below follow from the cost of an HTTP round trip to a multi-billion-parameter
+# model, which is a property of the route and not of which model is on the end
+# of it.
+_LLM = {
     "mt_enabled": True,
     "task": "transcribe",
     "mt_backend": "llm",
@@ -132,11 +138,11 @@ _QWEN = {
 }
 
 ENGINES: dict[str, dict] = {
-    "Sugoi v4 - utterance 2 s": {**_SUGOI, "mt_max_utterance_sec": 2.0},
-    "Sugoi v4 - utterance 3 s": {**_SUGOI, "mt_max_utterance_sec": 3.0},
-    "Sugoi v4 - utterance 5 s": {**_SUGOI, "mt_max_utterance_sec": 5.0},
-    "Sugoi v4 - utterance 8 s": {**_SUGOI, "mt_max_utterance_sec": 8.0},
-    "Sugoi v4 - utterance 10 s": {**_SUGOI, "mt_max_utterance_sec": 10.0},
+    "Sugoi v4 - utterance 2 s": {**_SUGOI_NMT, "mt_max_utterance_sec": 2.0},
+    "Sugoi v4 - utterance 3 s": {**_SUGOI_NMT, "mt_max_utterance_sec": 3.0},
+    "Sugoi v4 - utterance 5 s": {**_SUGOI_NMT, "mt_max_utterance_sec": 5.0},
+    "Sugoi v4 - utterance 8 s": {**_SUGOI_NMT, "mt_max_utterance_sec": 8.0},
+    "Sugoi v4 - utterance 10 s": {**_SUGOI_NMT, "mt_max_utterance_sec": 10.0},
     # The instruct tag, rather than the plain qwen3:4b these used to name.
     # qwen3:4b and qwen3:8b are reasoning models, and ollama's template for them
     # forces a <think> block on every turn that no API flag can suppress - so
@@ -146,14 +152,33 @@ ENGINES: dict[str, dict] = {
     # entries used to offer is gone; qwen2.5:7b-instruct is the nearest larger
     # non-reasoning model if it is wanted back.
     "Qwen3 4B Instruct - utterance 3 s": {
-        **_QWEN,
+        **_LLM,
         "mt_max_utterance_sec": 3.0,
         "llm_model": "qwen3:4b-instruct",
     },
     "Qwen3 4B Instruct - utterance 5 s": {
-        **_QWEN,
+        **_LLM,
         "mt_max_utterance_sec": 5.0,
         "llm_model": "qwen3:4b-instruct",
+    },
+    # Sugoi 14B Ultra: a ja->en specialist fine-tune, not a general model, and
+    # the only engine here that is both. It is pulled from Hugging Face rather
+    # than ollama's own library, which has no sugoi entry - the hf.co/ prefix is
+    # a tag ollama resolves itself, so 'ollama pull' on the string below is
+    # still the whole instruction and _check_server's message stays correct.
+    #
+    # Q4_K_M rather than Q8_0 because 9.0 GB leaves room for Whisper beside it;
+    # Q8_0 is 15.7 GB and would not fit a 16 GB card with anything else on it.
+    # Measured fully GPU-resident at 182 ms a line - see README.
+    "Sugoi 14B Ultra - utterance 3 s": {
+        **_LLM,
+        "mt_max_utterance_sec": 3.0,
+        "llm_model": "hf.co/sugoitoolkit/Sugoi-14B-Ultra-GGUF:Q4_K_M",
+    },
+    "Sugoi 14B Ultra - utterance 5 s": {
+        **_LLM,
+        "mt_max_utterance_sec": 5.0,
+        "llm_model": "hf.co/sugoitoolkit/Sugoi-14B-Ultra-GGUF:Q4_K_M",
     },
     "Whisper large-v3": {
         "mt_enabled": False,
@@ -167,7 +192,7 @@ ENGINES: dict[str, dict] = {
 
 _ENGINE_TIP = (
     "What turns the Japanese into English.\n"
-    "Sugoi is a dedicated translator and the fastest route.\n"
+    "Sugoi v4 is a dedicated 300M translator and the fastest route.\n"
     "\n"
     "Qwen3 4B Instruct is a local instruction model. It needs Ollama,\n"
     "with 'ollama pull qwen3:4b-instruct' done. An instruct tag and not\n"
@@ -181,6 +206,12 @@ _ENGINE_TIP = (
     "little later and never as dropped audio - but the dimmed preview\n"
     "is off on these, because it runs every 0.35 s and no LLM is close\n"
     "to keeping up with it.\n"
+    "\n"
+    "Sugoi 14B Ultra is the same route with a ja->en specialist on the\n"
+    "end of it instead of a general model - the most accurate option\n"
+    "here, at 182 ms a line. It needs 9 GB of VRAM to itself, so it\n"
+    "wants a 12 GB card or better with Whisper beside it. Pull it with\n"
+    "'ollama pull hf.co/sugoitoolkit/Sugoi-14B-Ultra-GGUF:Q4_K_M'.\n"
     "\n"
     "The utterance figure is how long speech with no sentence ending is\n"
     "held before translating it anyway. Scripted material - anime, a read\n"
