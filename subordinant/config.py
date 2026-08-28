@@ -18,6 +18,92 @@ log = logging.getLogger(__name__)
 # The model rate Whisper expects. Not configurable - changing it breaks the model.
 SAMPLE_RATE = 16000
 
+# Transcription models offered in the GUI, as config overrides. Separate from
+# ENGINES in window.py because the two choices are genuinely independent: this
+# is what turns audio into text, that is what translates the text afterwards.
+# The one exception is Whisper's own task="translate", where a single model does
+# both jobs and so dictates this one - see ENGINE_TRANSCRIBER in window.py.
+#
+# beam_size belongs here rather than with the engine because it is a property of
+# the acoustic model: large-v3 cannot afford beam 5 and turbo can. See the note
+# on beam_size below.
+TRANSCRIBERS: dict[str, dict] = {
+    "Whisper large-v3-turbo": {
+        "model": "large-v3-turbo",
+        "beam_size": 5,
+    },
+    # Distil-Whisper fine-tuned on Japanese by Kotoba Technologies. Four decoder
+    # layers' worth of Whisper large has been cut to two, so it is *faster* than
+    # turbo rather than slower - measured on a 12 s buffer, 184 ms against
+    # turbo's 210 ms (RTF 0.37 against 0.42) - while being trained specifically
+    # on Japanese speech.
+    #
+    # This is v2.0 and not v2.2 on purpose. v2.1 and v2.2 add punctuation and
+    # pyannote speaker diarization *around* the same acoustic weights, in a
+    # transformers pipeline that CTranslate2 cannot carry; every
+    # "kotoba-whisper-v2.2-faster" conversion on the Hub is a byte-identical
+    # copy of this repo (verified by sha256). The parts v2.2 adds are parts this
+    # program already does for itself, in diarize.py and the sentence splitter.
+    "Kotoba-Whisper v2.0 (Japanese)": {
+        "model": "kotoba-tech/kotoba-whisper-v2.0-faster",
+        # Set to 10 by request. Measured at a full 12 s buffer, per pass against
+        # 0.5 s of fresh audio:
+        #
+        #     beam 1    141 ms   RTF 0.28
+        #     beam 5    186 ms   RTF 0.37
+        #     beam 10   421 ms   RTF 0.84   <- here
+        #     beam 20  1169 ms   RTF 2.34
+        #
+        # 0.84 is the same place large-v3 sits, and it is the edge: it leaves
+        # ~16% headroom on an idle machine, so a game on the other monitor
+        # pushes it past 1.0, the backlog stops draining, and drop_backlog()
+        # discards audio that is then never transcribed at all. If captions
+        # start missing words under load, this is the first thing to lower.
+        #
+        # Worth knowing what it buys: on clean single-speaker audio, nothing -
+        # beam 5, 10 and 20 returned identical text. The case for it is the one
+        # measured for turbo under beam_size below, where beam search cut word
+        # loss on *overlapping* speech from 39% to 15%; that is not tested here,
+        # so whether 10 beats 5 on a real collab is unmeasured either way.
+        "beam_size": 5,
+    },
+    "Whisper large-v3": {
+        "model": "large-v3",
+        # Beam 1, unlike the turbo paths, and not for lack of benefit but for
+        # lack of room. large-v3 is already an expensive pass; measured at a
+        # full 12 s buffer, beam 5 puts it at RTF 1.02 on its own - past the
+        # point where the backlog stops draining and audio is discarded.
+        #
+        #     beam 1   425 ms   0.85      beam 3   413 ms   0.83
+        #     beam 5   511 ms   1.02  <- over
+        #
+        # Beam search pays when the model is uncertain, which is why it rescued
+        # turbo on overlapping speech (39% -> 15% word loss). large-v3 is a
+        # stronger model and gains least from it, so this is the cheapest place
+        # to give it up.
+        "beam_size": 1,
+    },
+}
+
+# Models trained on one language only. Whisper's language token still exists on
+# these and setting it to anything else is accepted rather than rejected, so the
+# failure is silent bad transcription - hence the warning in asr.py.
+MONOLINGUAL: dict[str, str] = {
+    "kotoba-tech/kotoba-whisper-v2.0-faster": "ja",
+}
+
+# Distil-Whisper models keep the full 32-layer encoder but cut the decoder to
+# two layers, and every CTranslate2 conversion of one on the Hub ships the
+# alignment_heads of the model it was distilled *from* - pairs naming decoder
+# layers 7 through 25. Word timestamps cross-attend to those layers, so
+# faster-whisper indexes past the end of a 2-layer decoder and the process dies
+# with a segfault rather than an exception. This program needs word timestamps
+# for LocalAgreement, so the config has to be repaired before the model loads -
+# see repair_alignment_heads() in asr.py.
+DECODER_LAYERS: dict[str, int] = {
+    "kotoba-tech/kotoba-whisper-v2.0-faster": 2,
+}
+
 
 def config_dir() -> Path:
     base = os.environ.get("APPDATA") or str(Path.home())
@@ -71,9 +157,31 @@ class Config:
     # Which SentencePiece pair to load out of the model's spm/ directory.
     mt_source_lang: str = "ja"
     mt_target_lang: str = "en"
-    # Beam search is nearly free here - it runs per utterance, not per pass.
-    # Measured ~46 ms at beam 1 against ~57 ms at beam 5.
-    mt_beam_size: int = 5
+    # The search converges at 10; above that the beam only costs. Over 12
+    # conversational utterances, beam 10, 20 and 32 returned byte-identical
+    # output at a flat mean logprob (-0.4687, -0.4687, -0.4685). Only beam 1 is
+    # meaningfully worse - it differs from beam 5 on 7 of the 12, logprob
+    # -0.4857. Between 5 and 10 there are 3 changes, none of them clear wins.
+    #
+    # Cost on an RTX 4080 SUPER, mean ms per call at float32:
+    #
+    #     beam 1   23.5 committed   16.1 live tail
+    #     beam 5   30.9             26.8
+    #     beam 10  67.2             48.1
+    #     beam 20 149.1            111.6   <- 2.5x beam 10 for identical text
+    #
+    # Cost scales with beam width and no setting avoids that: a 300M model on a
+    # batch of one is latency-bound on sequential decode steps rather than
+    # throughput-bound, so the idle GPU cannot absorb a wider beam. float16 buys
+    # ~15%, int8 nothing, and beam 50 falls off a cliff entirely (745 ms).
+    #
+    # The live tail is what makes any of this a real cost - it runs every pass,
+    # not once per utterance, so at 0.5 s passes beam 10 is 0.09 of the
+    # real-time budget against Whisper's 0.31. If it ever needs to come down,
+    # lower the preview rather than the committed pass: the preview is a guess
+    # that rewrites itself anyway, while committed text amortises over ~8 passes
+    # and is nearly free at any beam.
+    mt_beam_size: int = 20
     # NMT models degenerate into repetition loops when handed input they cannot
     # parse, and garbled ASR off a noisy stream is exactly that. Without these an
     # utterance can decode into hundreds of repeated words. The cap is the
@@ -86,7 +194,7 @@ class Config:
     # waiting for silence would mean no English at all while anyone is talking.
     # This is the backstop: translate whatever has accumulated once it spans
     # this long, sentence boundary or not.
-    mt_max_utterance_sec: float = 6.0
+    mt_max_utterance_sec: float = 3.0
     # Don't cut a translation unit at a change of voice if what comes before it
     # is shorter than this. A word or two stranded ahead of a speaker change is
     # nearly always the tail of the previous turn caught by a boundary window,
@@ -131,11 +239,24 @@ class Config:
     # 1.5 s, 0.74 at 2 s and 0.85 at 3 s, while the highest between-speaker
     # similarity barely moved (0.25 -> 0.21). Short windows are what make the
     # same voice look like a stranger.
-    diarize_window_sec: float = 3.0
-    # How much stream time each label covers. Kept well below the window so a
-    # change of voice can be placed to within a second while still being decided
-    # on three seconds of context. Costs one embedding (~33 ms) per hop.
-    diarize_hop_sec: float = 1.0
+    # ...but only up to a point, and the point is set by how fast people take
+    # turns. A window longer than a turn straddles the hand-off, so the
+    # embedding is a blend of two voices - and because blends are folded into
+    # the running centroid, the centroids converge until everyone matches
+    # speaker 1. Measured on two voices alternating, speakers found (want 2):
+    #
+    #     window/hop     8 s turns   4 s   2.5 s   1.5 s
+    #     3.0 / 1.00         2        1      1       1     <- collapses
+    #     2.5 / 0.75         2        2      1       1
+    #     2.0 / 0.75         2        2      2       2
+    #     1.5 / 1.00         2        2      2       2
+    #
+    # 2 s is the longest window that survives fast dialogue, and its voiceprints
+    # are markedly better than 1.5 s (0.74 against 0.61), so it takes both.
+    diarize_window_sec: float = 2.0
+    # How much stream time each label covers. Below the window, so a change of
+    # voice is still placed finely while being decided on more context.
+    diarize_hop_sec: float = 0.75
     # Never classify on less audio than this. Below it, same-speaker similarity
     # is no better than between-speaker, so a label would be a coin flip - and a
     # wrong one opens a speaker that never goes away.

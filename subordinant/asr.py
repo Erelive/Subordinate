@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
 from . import cuda
-from .config import SAMPLE_RATE, Config
+from .config import DECODER_LAYERS, MONOLINGUAL, SAMPLE_RATE, Config
 
 cuda.bootstrap()  # must precede the faster_whisper import
 
@@ -56,7 +58,11 @@ _HALLUCINATIONS = {
 #
 # Nothing errors in either case, which is the reason to say something here: bad
 # captions otherwise look like an audio or language problem.
-_WEAK_TRANSLATE = ("turbo", "distil")
+_WEAK_TRANSLATE = ("turbo", "distil", "kotoba")
+
+# Decoder attention heads at d_model 1280, which is what every model in
+# DECODER_LAYERS is distilled from.
+_ALIGNMENT_HEADS = 20
 
 
 def translate_warning(cfg: Config) -> str | None:
@@ -73,6 +79,76 @@ def translate_warning(cfg: Config) -> str | None:
     )
 
 
+def transcribe_warning(cfg: Config) -> str | None:
+    """Return a warning if cfg points a single-language model at another one."""
+    only = MONOLINGUAL.get(cfg.model)
+    if only is None or cfg.language == only:
+        return None
+    return (
+        f"{cfg.model} is trained on {only!r} only; it will still accept "
+        f"language={cfg.language!r} and return confident nonsense. Switch the "
+        "audio language or pick a multilingual model."
+    )
+
+
+def repair_alignment_heads(model_id: str) -> None:
+    """Drop alignment heads that name decoder layers the model does not have.
+
+    Distil models are shipped with the alignment_heads of the model they were
+    distilled from, which name decoder layers 7-25 on a decoder that has two.
+    faster-whisper reads them straight out of config.json when word_timestamps
+    is on and indexes the list of layers with them, so the mismatch is an
+    out-of-bounds read inside CTranslate2: the process segfaults, with no
+    traceback and nothing written to the log. Repairing the file is the only
+    place to intervene, because the heads are read during construction.
+
+    Rewrites the snapshot in place - the config is a few hundred bytes beside a
+    1.5 GB model.bin, the edit is idempotent, and the model cannot be used for
+    anything else in this program without it.
+    """
+    layers = DECODER_LAYERS.get(model_id)
+    if layers is None:
+        return  # not a model we know to be mis-shipped
+
+    path = Path(model_id)
+    if not path.is_dir():
+        try:
+            from huggingface_hub import snapshot_download
+
+            path = Path(snapshot_download(model_id))
+        except Exception as exc:  # noqa: BLE001 - network, auth and disk all land here
+            log.warning("could not resolve %s to repair it: %s", model_id, exc)
+            return
+
+    config = path / "config.json"
+    try:
+        data = json.loads(config.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("could not read %s: %s", config, exc)
+        return
+
+    heads = data.get("alignment_heads") or []
+    if all(layer < layers for layer, _head in heads):
+        return  # already repaired, or shipped correct
+
+    # Every head of the last decoder layer. The published pairs are a curated
+    # subset chosen for attending to time cleanly, and no such list exists for
+    # these models; taking the whole layer is the closest available substitute,
+    # and it puts word boundaries within ~40 ms of turbo's on the same audio.
+    data["alignment_heads"] = [[layers - 1, h] for h in range(_ALIGNMENT_HEADS)]
+    try:
+        config.write_text(json.dumps(data), encoding="utf-8")
+    except OSError as exc:
+        log.warning("could not repair %s: %s", config, exc)
+        return
+    log.info(
+        "repaired alignment heads for %s: %d pairs named decoder layers past %d",
+        model_id,
+        len(heads),
+        layers - 1,
+    )
+
+
 @dataclass(frozen=True)
 class Word:
     start: float
@@ -84,9 +160,12 @@ class Word:
 class Transcriber:
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        warning = translate_warning(cfg)
-        if warning:
-            log.warning("%s", warning)
+        for warning in (translate_warning(cfg), transcribe_warning(cfg)):
+            if warning:
+                log.warning("%s", warning)
+        # Must precede construction: the heads are read as the model is built,
+        # and a bad set faults the process instead of raising.
+        repair_alignment_heads(cfg.model)
         t0 = time.perf_counter()
         try:
             self.model = WhisperModel(

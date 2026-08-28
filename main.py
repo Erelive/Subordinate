@@ -68,7 +68,7 @@ os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 # Imported before PyQt6 on purpose: the package __init__ pins the system MSVC
 # runtime, which has to happen before Qt puts its own copy on the search path.
 from subordinant import logsetup
-from subordinant.config import Config
+from subordinant.config import TRANSCRIBERS, Config
 
 from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal  # noqa: E402
 from PyQt6.QtWidgets import (  # noqa: E402
@@ -81,7 +81,7 @@ from PyQt6.QtWidgets import (  # noqa: E402
 from subordinant.asr import translate_warning  # noqa: E402
 from subordinant.overlay import CaptionOverlay, make_tray_icon  # noqa: E402
 from subordinant.pipeline import CaptionPipeline  # noqa: E402
-from subordinant.window import ENGINES, TranscriptWindow  # noqa: E402
+from subordinant.window import ENGINE_TRANSCRIBER, ENGINES, TranscriptWindow  # noqa: E402
 
 log = logging.getLogger("subordinant")
 
@@ -358,13 +358,28 @@ def main(argv: list[str] | None = None) -> int:
         mutated underneath a running thread.
         """
         nonlocal pipeline
-        language, engine, diarize, speaker_cap, prompt = window.pending_settings()
+        (
+            language,
+            transcriber,
+            engine,
+            diarize,
+            speaker_cap,
+            prompt,
+        ) = window.pending_settings()
         cfg.language = language
         cfg.diarize_enabled = diarize
         cfg.diarize_max_speakers = speaker_cap
         cfg.initial_prompt = prompt
+        # Transcriber first: an engine that owns the transcription model has the
+        # last word on it, which is the order the GUI shows.
+        for key, value in TRANSCRIBERS[transcriber].items():
+            setattr(cfg, key, value)
         for key, value in ENGINES[engine].items():
             setattr(cfg, key, value)
+        forced = ENGINE_TRANSCRIBER.get(engine)
+        if forced:
+            for key, value in TRANSCRIBERS[forced].items():
+                setattr(cfg, key, value)
 
         window.set_status("applying settings...")
         window.apply_button.setEnabled(False)

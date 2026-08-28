@@ -50,16 +50,39 @@ for the session, so the original can be checked after the fact - which is the
 point when a translation mangles a name. The toolbar has opacity, pin-on-top and
 pause; scrolling up to read back will not be interrupted by new text arriving.
 
-**Audio language** and **Translate with** are set in the window, so a
-double-clicked build needs no command line. The three engines are:
+**Audio language**, **Transcribe with** and **Translate with** are set in the
+window, so a double-clicked build needs no command line.
 
-| | What runs | Notes |
+Transcription and translation are picked separately, because they are separate
+decisions:
+
+| Transcribe with | Speed | Notes |
 |---|---|---|
-| **Sugoi v4** | turbo transcribes, Sugoi translates | recommended; RTF 0.31, keeps the source text |
-| **Whisper large-v3** | one model, `task=translate` | English only, RTF 0.92 |
-| **No translation** | turbo transcribes | source language only |
+| **Whisper large-v3-turbo** | 210 ms, RTF 0.42 | any language; the safe default |
+| **Kotoba-Whisper v2.0** | 184 ms, RTF 0.37 | Japanese only, and *faster* than turbo |
+| **Whisper large-v3** | ~2x turbo | strongest, and the only one that can translate |
 
-Changing either reloads models, so it takes effect on **Apply** rather than
+| Translate with | What runs | Notes |
+|---|---|---|
+| **Sugoi v4** | Whisper transcribes, Sugoi translates | recommended; keeps the source text |
+| **Whisper large-v3** | one model, `task=translate` | English only, RTF 0.92; locks the transcriber to large-v3 |
+| **No translation** | transcription only | source language only |
+
+Measured at a 12 s buffer on an RTX 4080 SUPER, Japanese audio. Kotoba is a
+Distil-Whisper: the encoder is the full 32 layers but the decoder is cut from
+32 to 2, which is why it beats turbo on speed while being trained specifically
+on Japanese. Pick it only for Japanese - Whisper's language token still exists
+on it, so another language is accepted rather than refused and comes back as
+confident nonsense.
+
+It is **v2.0 and not v2.2** deliberately. v2.1 and v2.2 wrap the same acoustic
+weights in a transformers pipeline that adds punctuation and pyannote speaker
+diarization; CTranslate2 cannot carry that pipeline, and every
+`kotoba-whisper-v2.2-faster` conversion on the Hub is a byte-identical copy of
+v2.0-faster (same sha256). The parts v2.2 adds are parts this program already
+does for itself, in `diarize.py` and the sentence splitter.
+
+Changing any of them reloads models, so it takes effect on **Apply** rather than
 immediately, and the pipeline restarts - a few seconds of no captions.
 
 ### Why a window rather than an overlay

@@ -19,6 +19,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 SITE_PACKAGES = Path(SPECPATH) / ".venv" / "Lib" / "site-packages"
 SYSTEM32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
 
+
 # PyQt6 vendors an MSVC runtime from 2019 (14.26) in PyQt6\Qt6\bin and adds that
 # directory to the DLL search path. CTranslate2 is linked against a newer one and
 # faults on model construction if it binds to Qt's copy. Keeping exactly one

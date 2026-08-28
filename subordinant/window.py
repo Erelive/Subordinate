@@ -41,7 +41,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .config import Config
+from .config import TRANSCRIBERS, Config
 from .diarize import UNKNOWN, speaker_label
 
 log = logging.getLogger(__name__)
@@ -51,27 +51,48 @@ log = logging.getLogger(__name__)
 MIN_OPACITY = 25
 
 # Translation engines, as config overrides. Each is a whole coherent setup
-# rather than a single switch, because the choice implies a model and a Whisper
-# task as well: Sugoi needs Whisper transcribing so it has source text to work
-# from, while Whisper's own translation needs large-v3 - large-v3-turbo accepts
-# task="translate" and returns the source language untouched.
+# rather than a single switch, because the choice implies a Whisper task as
+# well: Sugoi needs Whisper transcribing so it has source text to work from,
+# while Whisper's own translation needs task="translate".
+#
+# Which model does the transcribing is a separate choice, in config.TRANSCRIBERS
+# - it used to live here, which conflated two independent decisions and left no
+# way to pick a better Japanese model without also changing how translation
+# worked. The one place they are not independent is below.
+#
+# Which keys say *which* engine this is, as opposed to how it is tuned. Applying
+# an engine sets every key in its entry; recognising one only compares these.
+# Otherwise a config saved before a tuning value changed stops matching its own
+# engine, and the picker silently shows the wrong one while something else runs.
+ENGINE_IDENTITY = ("mt_enabled", "task")
+
 ENGINES: dict[str, dict] = {
     "Sugoi v4 (recommended)": {
         "mt_enabled": True,
-        "model": "large-v3-turbo",
         "task": "transcribe",
     },
     "Whisper large-v3": {
         "mt_enabled": False,
-        "model": "large-v3",
         "task": "translate",
     },
     "No translation": {
         "mt_enabled": False,
-        "model": "large-v3-turbo",
         "task": "transcribe",
     },
 }
+
+# Engines where one model does both jobs, so the engine dictates the transcriber
+# and the picker for it is locked. large-v3-turbo accepts task="translate" and
+# returns the source language untouched, and the distilled models cannot
+# translate at all, so this route specifically needs full large-v3.
+ENGINE_TRANSCRIBER = {"Whisper large-v3": "Whisper large-v3"}
+
+_TRANSCRIBER_TIP = (
+    "Which model turns audio into text.\n"
+    "large-v3-turbo handles any language and is the safe default.\n"
+    "Kotoba is Japanese-only, and both faster and more accurate on it.\n"
+    "large-v3 is the strongest, but costs roughly twice the time per pass."
+)
 
 # Source language of the audio, not of the captions. Kept to the four the
 # translation models are actually set up for - Whisper handles far more, but
@@ -310,6 +331,15 @@ class TranscriptWindow(QMainWindow):
         bar.addWidget(self._language)
 
         bar.addSpacing(10)
+        bar.addWidget(QLabel("Transcribe with"))
+        self._transcriber = QComboBox()
+        for name in TRANSCRIBERS:
+            self._transcriber.addItem(name)
+        self._transcriber.setToolTip(_TRANSCRIBER_TIP)
+        self._transcriber.setMinimumWidth(190)
+        bar.addWidget(self._transcriber)
+
+        bar.addSpacing(10)
         bar.addWidget(QLabel("Translate with"))
         self._engine = QComboBox()
         for name in ENGINES:
@@ -355,8 +385,13 @@ class TranscriptWindow(QMainWindow):
 
         # Only offer Apply once something actually differs from what is running.
         self._language.currentIndexChanged.connect(self._settings_changed)
+        self._transcriber.currentIndexChanged.connect(self._settings_changed)
         self._engine.currentIndexChanged.connect(self._settings_changed)
         self._diarize.toggled.connect(self._settings_changed)
+        # Whisper's own translation is one model doing both jobs, so picking it
+        # settles the transcriber too - shown rather than silently overridden.
+        self._engine.currentIndexChanged.connect(self._sync_transcriber)
+        self._sync_transcriber()
 
         bar.addStretch(1)
         rows.addLayout(bar)
@@ -388,13 +423,27 @@ class TranscriptWindow(QMainWindow):
         rows.addLayout(names)
         return rows
 
+    def _sync_transcriber(self) -> None:
+        """Lock the transcriber to the engine where the engine implies one."""
+        forced = ENGINE_TRANSCRIBER.get(self._engine.currentText())
+        if forced:
+            self._transcriber.setCurrentText(forced)
+        self._transcriber.setEnabled(forced is None)
+        self._transcriber.setToolTip(
+            f"{self._engine.currentText()} translates with the "
+            "transcription model itself, so it sets this one too."
+            if forced
+            else _TRANSCRIBER_TIP
+        )
+
     def _settings_changed(self) -> None:
         self._apply.setEnabled(self.pending_settings() != self._applied)
 
-    def pending_settings(self) -> tuple[str, str, bool, int, str]:
-        """(language, engine, labelling, speaker cap, name glossary)."""
+    def pending_settings(self) -> tuple[str, str, str, bool, int, str]:
+        """(language, transcriber, engine, labelling, speaker cap, glossary)."""
         return (
             self._language.currentData(),
+            self._transcriber.currentText(),
             self._engine.currentText(),
             self._diarize.isChecked(),
             self._speaker_count.currentData(),
@@ -412,9 +461,14 @@ class TranscriptWindow(QMainWindow):
         if idx >= 0:
             self._language.setCurrentIndex(idx)
         for name, over in ENGINES.items():
-            if all(getattr(cfg, k) == v for k, v in over.items()):
+            if all(getattr(cfg, k) == over[k] for k in ENGINE_IDENTITY if k in over):
                 self._engine.setCurrentText(name)
                 break
+        for name, over in TRANSCRIBERS.items():
+            if cfg.model == over["model"]:
+                self._transcriber.setCurrentText(name)
+                break
+        self._sync_transcriber()
         self._prompt.setText(cfg.initial_prompt)
         self._diarize.setChecked(cfg.diarize_enabled)
         self._speaker_count.setEnabled(cfg.diarize_enabled)
@@ -438,6 +492,7 @@ class TranscriptWindow(QMainWindow):
 
         self._pause = QCheckBox("Pause")
         bar.addWidget(self._pause)
+
 
         # Not in the settings row, and so not behind Apply: this changes nothing
         # about which models are loaded, only whether the tail gets previewed, so

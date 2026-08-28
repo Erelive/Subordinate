@@ -27,6 +27,14 @@ log = logging.getLogger(__name__)
 # Sentence and clause marks, in both the Japanese and ASCII forms Whisper emits.
 _PUNCT = "。、．，…「」『』.,!?！？;:；："
 
+# How much repeated text it takes to believe Whisper actually repeated itself,
+# rather than two different words happening to share a character. Three is
+# enough to exclude single particles while still catching the real case, which
+# is a whole word or phrase re-emitted at the head of the next pass. The cost of
+# being wrong in this direction is one duplicated short word; in the other, it
+# is a silently deleted one.
+_MIN_REPEAT_CHARS = 3
+
 
 def _norm(text: str) -> str:
     """Normalise a word for the agreement comparison, ignoring punctuation.
@@ -77,7 +85,16 @@ class HypothesisBuffer:
         for n in range(1, max_n + 1):
             tail = " ".join(_norm(w.text) for w in self.committed[-n:])
             head = " ".join(_norm(w.text) for w in self._incoming[:n])
-            if tail == head:
+            # Length is the evidence, not the match. Japanese tokenises into one
+            # and two character pieces - た, て, の, し - which recur constantly,
+            # so a short match is a coincidence rather than a repeat, and
+            # deleting it removes the real first word of the next utterance. It
+            # showed up as transcript lines beginning mid-word.
+            #
+            # Timestamps cannot settle this: the buffer is trimmed to
+            # last_committed_time, so a genuine repeat and a genuinely new word
+            # both begin at almost exactly that point.
+            if tail == head and len(tail.replace(" ", "")) >= _MIN_REPEAT_CHARS:
                 del self._incoming[:n]
                 break
 
