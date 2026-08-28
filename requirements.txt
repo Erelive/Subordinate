@@ -3,7 +3,11 @@ PyAudioWPatch==0.2.12.7
 
 # ASR: CTranslate2 backend, bundles a Silero VAD ONNX model
 faster-whisper==1.2.0
-# faster-whisper 1.2.0 imports requests but does not declare it
+# faster-whisper 1.2.0 imports requests but does not declare it. It is also the
+# whole transport for the LLM translation engines (subordinant/llm_translate.py):
+# those talk to a local Ollama over HTTP, so choosing that route costs no new
+# dependency here and nothing extra in the bundle - the model lives in Ollama,
+# not in this process.
 requests==2.32.5
 
 # CUDA runtime libraries CTranslate2 links against on Windows.

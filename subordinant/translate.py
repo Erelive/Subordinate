@@ -40,6 +40,22 @@ class TranslationUnavailable(RuntimeError):
     """Raised when the MT model cannot be loaded."""
 
 
+def build_translator(cfg: Config):
+    """The translator cfg.mt_backend asks for.
+
+    Both backends expose exactly translate(str) -> str and raise
+    TranslationUnavailable from their constructor, so the pipeline holds one
+    slot and neither knows about the other. Imported lazily because the LLM
+    backend reaches for the network at import time and the ct2 one must not
+    depend on it being reachable.
+    """
+    if cfg.mt_backend == "llm":
+        from .llm_translate import LLMTranslator
+
+        return LLMTranslator(cfg)
+    return Translator(cfg)
+
+
 class Translator:
     """Wraps a CTranslate2 NMT model plus its SentencePiece tokenizers."""
 

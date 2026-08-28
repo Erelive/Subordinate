@@ -125,6 +125,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--mt-model", dest="mt_model", help="NMT model to use")
     parser.add_argument(
+        "--mt-backend",
+        dest="mt_backend",
+        choices=["ct2", "llm"],
+        help="ct2 runs the NMT model in --mt-model; llm runs --llm-model over "
+        "Ollama, which is slower per line but sees the preceding ones",
+    )
+    parser.add_argument(
+        "--llm-model",
+        dest="llm_model",
+        help="Ollama tag for --mt-backend llm, e.g. qwen3:4b-instruct. Use "
+        "an instruct tag: a reasoning model deliberates instead of "
+        "translating, and the deliberation lands in the captions",
+    )
+    parser.add_argument(
+        "--llm-endpoint", dest="llm_endpoint", help="Ollama base URL"
+    )
+    parser.add_argument(
         "--speakers",
         dest="diarize_enabled",
         action="store_true",
@@ -209,9 +226,9 @@ def selftest(cfg: Config) -> int:
 
     if cfg.mt_enabled:
         def load_mt() -> str:
-            from subordinant.translate import Translator
+            from subordinant.translate import build_translator
 
-            return Translator(cfg).translate("これはテストです。") or "(empty)"
+            return build_translator(cfg).translate("これはテストです。") or "(empty)"
 
         report("translation", load_mt)
 

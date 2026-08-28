@@ -70,9 +70,64 @@ utterances Kotoba scored 89.84 / 89.77 / 89.79 percent at beam 5 / 10 / 20.
 
 | Translate with | What runs | Notes |
 |---|---|---|
-| **Sugoi v4** (utterance 2 / 3 / 5 / 8 s) | Whisper transcribes, Sugoi translates | recommended; keeps the source text |
+| **Sugoi v4** (utterance 2 / 3 / 5 / 8 / 10 s) | Whisper transcribes, Sugoi translates | the fast default; 46 ms a line, keeps the source text |
+| **Qwen3 4B Instruct** (utterance 3 / 5 s) | Whisper transcribes, a local LLM translates | needs Ollama; 116 ms a line, and sees the preceding lines, so names hold |
 | **Whisper large-v3** | one model, `task=translate` | English only, RTF 1.31 - see below; locks the transcriber to large-v3 |
 | **No translation** | transcription only | source language only |
+
+### The Qwen3 engines
+
+Sugoi is a 300M NMT model that sees one sentence and nothing else, and its two
+standing failures both come from that: it renames the same character on every
+line, and it cannot recover a subject the speaker dropped - which Japanese
+speakers do constantly. Neither is reachable by tuning a model with no memory.
+
+The Qwen3 engines send each committed utterance to a local instruction model
+along with the last three, as prior turns. The model has already seen how it
+rendered a name, and it knows who is being talked about. That is the whole
+trade: 116 ms a line against Sugoi's 46 ms - mean and median over 14 warm
+calls on a 4080 SUPER, max 199 ms - spent on the one thing the NMT route
+cannot do.
+
+They need [Ollama](https://ollama.com) running, with the model pulled:
+
+```
+winget install Ollama.Ollama
+ollama pull qwen3:4b-instruct
+```
+
+**It has to be an instruct tag.** Plain `qwen3:4b` and `qwen3:8b` are reasoning
+models, and Ollama's template for them prefills a `<think>` block on every
+assistant turn unconditionally - there is no `enable_thinking` branch in it, so
+nothing sent over the API stops them deliberating. Passing `"think": false` only
+switches off Ollama's *parser*, which sends the deliberation down `content` with
+its opening tag already eaten by the template, where nothing can strip it and it
+renders verbatim as captions. `-instruct` never reasons, so the question does
+not arise. There is no `qwen3:8b-instruct`; `qwen2.5:7b-instruct` is the nearest
+larger non-reasoning model.
+
+Nothing else changes - the weights live in Ollama rather than in this process,
+so the app gains no new Python dependency and the bundle does not grow. If the
+server is down or the tag is not pulled, the engine says so at **Apply** and
+captions continue in the source language rather than the run failing.
+
+Two things are forced on these engines rather than offered, both by cost:
+
+- **The dimmed live preview is off.** It runs every pass, ~0.35 s apart, on a
+  budget of tens of milliseconds. No LLM is close. English arrives a whole
+  utterance at a time instead of moving continuously.
+- **Translation runs off the ASR thread.** Half a second inline stalls the
+  capture loop until `drop_backlog()` discards audio, so a slow translator would
+  cost *audio* rather than latency. On the worker it costs neither: the caption
+  simply lands a few hundred milliseconds later, on a line that was already
+  waiting for an utterance boundary.
+
+4B and 8B are both offered at the same two utterance lengths so switching
+between them is a fair comparison - changing the hold at the same time would
+confound it. On a 16 GB card both fit beside Kotoba comfortably; gpt-oss-20b,
+the obvious other candidate, does not (~12 GB of weights against ~13.5 GB free)
+and is a reasoning model besides, which for translation is latency with no
+return.
 
 The seconds on the Sugoi entries are `mt_max_utterance_sec`: how long speech
 carrying no sentence ending is held before being translated anyway. Whisper only

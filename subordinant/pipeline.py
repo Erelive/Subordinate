@@ -8,6 +8,7 @@ signal used to detect that the GPU has fallen behind real time.
 from __future__ import annotations
 
 import logging
+import queue
 import threading
 import time
 from collections import deque
@@ -21,7 +22,7 @@ from .audio import LoopbackCapture
 from .config import SAMPLE_RATE, Config
 from .diarize import UNKNOWN, DiarizationUnavailable, SpeakerTracker
 from .streaming import StreamingTranscriber, join_words
-from .translate import TranslationUnavailable, Translator
+from .translate import TranslationUnavailable, build_translator
 from .vad import EnergyGate
 
 log = logging.getLogger(__name__)
@@ -162,10 +163,33 @@ class CaptionPipeline:
             log.info("mt_enabled: using task=transcribe, MT does the translating")
             cfg.task = "transcribe"
 
+        # Same reasoning one level down. The GUI engines set both of these, but
+        # --mt-backend llm and tools.console arrive here without them, and
+        # neither failure announces itself: inline, a slow translator stalls the
+        # capture loop until drop_backlog() discards audio, and the preview
+        # would re-run the model every 0.35 s to show a line that rewrites
+        # itself anyway. Both are properties of the backend rather than choices,
+        # so they are settled here rather than left to the caller.
+        if cfg.mt_enabled and cfg.mt_backend == "llm":
+            if not cfg.mt_async:
+                log.info("mt_backend=llm: translating off the ASR thread")
+                cfg.mt_async = True
+            if cfg.mt_live_enabled:
+                log.info("mt_backend=llm: live preview off, too slow per pass")
+                cfg.mt_live_enabled = False
+
         self.stats = Stats()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._paused = threading.Event()
+        # Set only with cfg.mt_async. Unbounded on purpose: the producer is one
+        # utterance every few seconds and the consumer is a few hundred
+        # milliseconds, so the queue holds 0 or 1 in steady state, and a bound
+        # would mean choosing between blocking the ASR thread - the exact thing
+        # this exists to avoid - and dropping a caption. A wedged server is
+        # handled by llm_timeout_sec instead, which bounds the drain rate.
+        self._mt_queue: queue.Queue[tuple[str, int] | None] | None = None
+        self._mt_thread: threading.Thread | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -204,7 +228,7 @@ class CaptionPipeline:
             if self.cfg.mt_enabled and self.translator is None:
                 self.on_status("loading translation model...")
                 try:
-                    self.translator = Translator(self.cfg)
+                    self.translator = build_translator(self.cfg)
                 except TranslationUnavailable as exc:
                     # Captions in the source language are still useful, so this
                     # degrades rather than aborting the run.
@@ -220,6 +244,16 @@ class CaptionPipeline:
                     # rather than aborting the run.
                     log.warning("speaker labelling disabled: %s", exc)
                     self.on_status(f"speaker labelling unavailable: {exc}")
+
+            # Only once the translator is known to have loaded: with no
+            # translator there is nothing to feed the worker, and the inline
+            # path below is what the ct2 numbers were measured on.
+            if self.translator is not None and self.cfg.mt_async:
+                self._mt_queue = queue.Queue()
+                self._mt_thread = threading.Thread(
+                    target=self._mt_worker, name="caption-mt", daemon=True
+                )
+                self._mt_thread.start()
 
             capture = LoopbackCapture(frames_per_buffer=self.cfg.frames_per_buffer)
             self.on_status("opening audio device...")
@@ -313,6 +347,7 @@ class CaptionPipeline:
                 self._flush_live(stream)
         finally:
             capture.stop()
+            self._stop_mt_worker()
             log.info(
                 "pipeline stopped: %d passes, mean %.0f ms, RTF %.2f, "
                 "lag mean %.2fs max %.2fs, %d drops, "
@@ -434,6 +469,13 @@ class CaptionPipeline:
         source = join_words(chunk)
         if not source:
             return
+        # Resolved on this thread rather than in the worker: the tracker belongs
+        # to this thread, and prune() will have moved past this span by the time
+        # a slow translation comes back.
+        speaker = self._speaker_of(chunk)
+        if self._mt_queue is not None:
+            self._mt_queue.put((source, speaker))
+            return
         t0 = time.perf_counter()
         english = self.translator.translate(source)
         self.stats.mt_calls += 1
@@ -442,7 +484,50 @@ class CaptionPipeline:
         # consumed either way - _mt_until has moved past it - so dropping it
         # here loses the utterance outright, and the source line is exactly what
         # this window keeps history for. The transcript shows source-only.
-        self.on_translation(source, english, self._speaker_of(chunk))
+        self.on_translation(source, english, speaker)
+
+    # -- async MT ----------------------------------------------------------
+
+    def _mt_worker(self) -> None:
+        """Drain the translation queue off the ASR thread.
+
+        One worker, so utterances are translated and emitted in the order they
+        were committed. It is the only writer of the mt_* counters while it
+        runs, which is why those need no lock.
+        """
+        assert self._mt_queue is not None
+        while True:
+            item = self._mt_queue.get()
+            if item is None:
+                return
+            # Past this point the run is over: drain the backlog without
+            # translating it, so teardown is not held up by work nobody will
+            # see. The same check runs again below because a call already in
+            # flight cannot be cancelled.
+            if self._stop.is_set():
+                continue
+            source, speaker = item
+            t0 = time.perf_counter()
+            english = self.translator.translate(source)
+            self.stats.mt_calls += 1
+            self.stats.total_mt_sec += time.perf_counter() - t0
+            if self._stop.is_set():
+                continue
+            self.on_translation(source, english, speaker)
+
+    def _stop_mt_worker(self) -> None:
+        """Sentinel the worker and give it a moment to notice.
+
+        The join is bounded because a request in flight runs to
+        llm_timeout_sec and cannot be interrupted. Outliving this is harmless:
+        the thread is a daemon, and _stop is set, so it emits nothing.
+        """
+        if self._mt_thread is None:
+            return
+        assert self._mt_queue is not None
+        self._mt_queue.put(None)
+        self._mt_thread.join(timeout=2.0)
+        self._mt_thread = None
 
     def _flush_live(self, stream: StreamingTranscriber) -> None:
         """Translate the tail that has not settled, for the preview line.

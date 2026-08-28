@@ -69,7 +69,18 @@ MIN_OPACITY = 25
 # entries below differ by nothing else. Leave it out and they all match on
 # (mt_enabled, task), so load_settings picks whichever comes first and the
 # picker shows 2.0 s while 8.0 s is running.
-ENGINE_IDENTITY = ("mt_enabled", "task", "mt_max_utterance_sec")
+#
+# mt_backend and llm_model are here for the same reason one level up: without
+# mt_backend a saved Qwen3 config matches the first Sugoi entry that agrees on
+# the hold, and without llm_model the two Qwen3 sizes are indistinguishable. The
+# rule is that any key two entries differ by has to appear here.
+ENGINE_IDENTITY = (
+    "mt_enabled",
+    "task",
+    "mt_backend",
+    "llm_model",
+    "mt_max_utterance_sec",
+)
 
 # How long speech with no sentence ending in it is held before translating it
 # anyway. It is offered here, spelled out, because it is the single control that
@@ -92,31 +103,57 @@ ENGINE_IDENTITY = ("mt_enabled", "task", "mt_max_utterance_sec")
 # the cut. Longer holds mean fewer cuts and so fewer of these, paid for in
 # latency - which the live preview (mt_live_enabled) largely hides, since the
 # unfinished tail keeps moving while the settled text waits.
+# Keys every MT engine has to name, because apply_settings() writes only what
+# the chosen engine declares. A key one engine sets and another omits survives
+# the switch: leave mt_async off the Sugoi entries and picking Qwen3 once turns
+# Sugoi async for the rest of the session, silently and with no control showing
+# it. _SHARED is spread into each entry so that cannot happen by omission.
+_SUGOI = {
+    "mt_enabled": True,
+    "task": "transcribe",
+    "mt_backend": "ct2",
+    # 46 ms a call. Cheap enough to run inline on the ASR thread, and cheap
+    # enough to re-run every pass for the preview - which is what the measured
+    # numbers throughout config.py were taken on.
+    "mt_async": False,
+    "mt_live_enabled": True,
+}
+
+_QWEN = {
+    "mt_enabled": True,
+    "task": "transcribe",
+    "mt_backend": "llm",
+    # Both of these are forced by cost, not preference. A few hundred ms inline
+    # would stall the capture loop until the backlog was discarded, and the
+    # preview runs every 0.35 s on a budget an LLM misses by an order of
+    # magnitude. See subordinant/llm_translate.py.
+    "mt_async": True,
+    "mt_live_enabled": False,
+}
+
 ENGINES: dict[str, dict] = {
-    "Sugoi v4 - utterance 2 s": {
-        "mt_enabled": True,
-        "task": "transcribe",
-        "mt_max_utterance_sec": 2.0,
-    },
-    "Sugoi v4 - utterance 3 s": {
-        "mt_enabled": True,
-        "task": "transcribe",
+    "Sugoi v4 - utterance 2 s": {**_SUGOI, "mt_max_utterance_sec": 2.0},
+    "Sugoi v4 - utterance 3 s": {**_SUGOI, "mt_max_utterance_sec": 3.0},
+    "Sugoi v4 - utterance 5 s": {**_SUGOI, "mt_max_utterance_sec": 5.0},
+    "Sugoi v4 - utterance 8 s": {**_SUGOI, "mt_max_utterance_sec": 8.0},
+    "Sugoi v4 - utterance 10 s": {**_SUGOI, "mt_max_utterance_sec": 10.0},
+    # The instruct tag, rather than the plain qwen3:4b these used to name.
+    # qwen3:4b and qwen3:8b are reasoning models, and ollama's template for them
+    # forces a <think> block on every turn that no API flag can suppress - so
+    # they spent the whole token budget deliberating, and the deliberation was
+    # what reached the captions. -instruct does not reason at all. There is no
+    # qwen3:8b-instruct to pair with it, which is why the size comparison these
+    # entries used to offer is gone; qwen2.5:7b-instruct is the nearest larger
+    # non-reasoning model if it is wanted back.
+    "Qwen3 4B Instruct - utterance 3 s": {
+        **_QWEN,
         "mt_max_utterance_sec": 3.0,
+        "llm_model": "qwen3:4b-instruct",
     },
-    "Sugoi v4 - utterance 5 s": {
-        "mt_enabled": True,
-        "task": "transcribe",
+    "Qwen3 4B Instruct - utterance 5 s": {
+        **_QWEN,
         "mt_max_utterance_sec": 5.0,
-    },
-    "Sugoi v4 - utterance 8 s": {
-        "mt_enabled": True,
-        "task": "transcribe",
-        "mt_max_utterance_sec": 8.0,
-    },
-        "Sugoi v4 (utterance 10.0 s - most context)": {
-        "mt_enabled": True,
-        "task": "transcribe",
-        "mt_max_utterance_sec": 10.0,
+        "llm_model": "qwen3:4b-instruct",
     },
     "Whisper large-v3": {
         "mt_enabled": False,
@@ -130,7 +167,20 @@ ENGINES: dict[str, dict] = {
 
 _ENGINE_TIP = (
     "What turns the Japanese into English.\n"
-    "Sugoi is a dedicated translator and the recommended route.\n"
+    "Sugoi is a dedicated translator and the fastest route.\n"
+    "\n"
+    "Qwen3 4B Instruct is a local instruction model. It needs Ollama,\n"
+    "with 'ollama pull qwen3:4b-instruct' done. An instruct tag and not\n"
+    "plain qwen3: the reasoning models cannot be stopped from thinking,\n"
+    "and the thinking is what ends up in the captions.\n"
+    "\n"
+    "It costs 116 ms a line against Sugoi's 46 ms, which buys the thing\n"
+    "Sugoi structurally cannot do: it sees the last few lines, so names\n"
+    "stay consistent and a dropped subject can be recovered. That cost\n"
+    "is paid off the audio thread, so it shows up as English arriving a\n"
+    "little later and never as dropped audio - but the dimmed preview\n"
+    "is off on these, because it runs every 0.35 s and no LLM is close\n"
+    "to keeping up with it.\n"
     "\n"
     "The utterance figure is how long speech with no sentence ending is\n"
     "held before translating it anyway. Scripted material - anime, a read\n"

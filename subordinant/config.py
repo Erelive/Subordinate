@@ -162,6 +162,20 @@ class Config:
     # the English. See subordinant/translate.py for why this is the cheaper
     # route despite being a second model.
     mt_enabled: bool = False
+    # Which translator runs: "ct2" is the CTranslate2 NMT model in mt_model
+    # (Sugoi), "llm" is a local instruction model over Ollama - see
+    # subordinant/llm_translate.py. They differ by ~10x in cost per call and are
+    # not interchangeable at every point in the loop, which is what mt_async and
+    # mt_live_enabled below are for.
+    mt_backend: str = "ct2"
+    # Translate off the ASR thread. Sugoi is 46 ms and is simply called inline;
+    # an LLM is 300-600 ms, and that inline would stall the capture loop for the
+    # whole call - audio piles up in the queue and drop_backlog() eventually
+    # fires, so the price of a slow translator would be discarded audio rather
+    # than a late caption. Off-thread the ASR loop never waits, and the caption
+    # arrives when it arrives. Left off for ct2, whose measured numbers were all
+    # taken on the inline path.
+    mt_async: bool = False
     mt_model: str = "entai2965/sugoi-v4-ja-en-ctranslate2"
     # Which SentencePiece pair to load out of the model's spm/ directory.
     mt_source_lang: str = "ja"
@@ -237,6 +251,55 @@ class Config:
     # Don't preview less than this much source text: a two-word fragment
     # translates to noise and just makes the line flicker.
     mt_live_min_chars: int = 4
+
+    # --- LLM translation (mt_backend="llm") ---
+    # Ollama's HTTP API, which is why this costs no new Python dependency:
+    # requests is already pinned for faster-whisper. The model stays resident in
+    # the server across engine switches, so swapping 4B for 8B in the GUI is a
+    # different string in one request rather than a model load.
+    llm_endpoint: str = "http://localhost:11434"
+    # An instruct tag, not plain qwen3, and the distinction is load-bearing.
+    # qwen3:4b and qwen3:8b are reasoning models whose ollama template prefills
+    # <think> on every assistant turn unconditionally, so they deliberate for
+    # tens to hundreds of tokens before translating a sentence they could have
+    # translated directly - pure latency here, and it exhausts llm_max_tokens
+    # before the answer starts. The -instruct tag never reasons at all.
+    llm_model: str = "qwen3:4b-instruct"
+    # Ask for reasoning. Off, and left off: deliberation is latency this stage
+    # cannot spend. Note that this does not make a reasoning model stop
+    # reasoning - nothing sent over the API can, if its template forces the
+    # block - it only decides whether the reasoning is asked for. See _post in
+    # llm_translate.py for why false is expressed by omitting the flag.
+    llm_think: bool = False
+    # Ceiling on one translation, in tokens. Same job as mt_max_decoding_length
+    # on the ct2 path: an instruction model handed garbled ASR will sometimes
+    # comment on it at length instead of translating it.
+    llm_max_tokens: int = 128
+    # Low but not zero. Greedy decoding on a fragment tends to produce the same
+    # stock phrase repeatedly; a little spread reads better without inventing.
+    llm_temperature: float = 0.2
+    # Context window. 2048 is generous for an utterance plus the few turns of
+    # history below, and keeping it small keeps the KV cache small.
+    llm_num_ctx: int = 2048
+    # How many previous utterances to show the model as prior turns.
+    #
+    # This is the whole reason an LLM is worth 10x the cost. Sugoi is stateless
+    # and sees exactly one sentence, which is why it renames the same character
+    # every line and cannot recover a dropped subject - and Japanese drops the
+    # subject constantly. Prior turns fix both: the model has already seen how
+    # it rendered a name, and it knows who is being talked about.
+    #
+    # Costs prefill on every call, which is cheap next to decode, so this is the
+    # rare knob that buys quality at almost no latency. 0 disables it.
+    llm_context_utterances: int = 3
+    # Give up on one translation after this long and emit nothing rather than
+    # letting a wedged server back the queue up indefinitely. Generous, because
+    # off-thread a slow call costs a late caption and nothing else.
+    llm_timeout_sec: float = 20.0
+    # How long Ollama holds the model in VRAM after the last request. Longer
+    # than the default 5 minutes, so a pause in the audio does not mean paying
+    # the load again on the next line.
+    llm_keep_alive: str = "30m"
 
     # --- speaker labelling ---
     # Label each utterance with who said it, and cut translation units at a
