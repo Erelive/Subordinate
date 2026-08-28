@@ -361,6 +361,7 @@ def main(argv: list[str] | None = None) -> int:
         (
             language,
             transcriber,
+            beam,
             engine,
             diarize,
             speaker_cap,
@@ -380,6 +381,10 @@ def main(argv: list[str] | None = None) -> int:
         if forced:
             for key, value in TRANSCRIBERS[forced].items():
                 setattr(cfg, key, value)
+        # Last, so it overrides the beam whichever transcriber entry won above.
+        # 0 means the picker is on Auto and the model's own default stands.
+        if beam:
+            cfg.beam_size = beam
 
         window.set_status("applying settings...")
         window.apply_button.setEnabled(False)

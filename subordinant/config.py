@@ -46,19 +46,20 @@ TRANSCRIBERS: dict[str, dict] = {
     # program already does for itself, in diarize.py and the sentence splitter.
     "Kotoba-Whisper v2.0 (Japanese)": {
         "model": "kotoba-tech/kotoba-whisper-v2.0-faster",
-        # Set to 10 by request. Measured at a full 12 s buffer, per pass against
-        # 0.5 s of fresh audio:
+        # Measured at a full 12 s buffer. The ms are a property of the model;
+        # the RTF is against process_interval_sec, now 0.35 s rather than the
+        # 0.5 s these were first quoted at:
         #
-        #     beam 1    141 ms   RTF 0.28
-        #     beam 5    186 ms   RTF 0.37
-        #     beam 10   421 ms   RTF 0.84   <- here
-        #     beam 20  1169 ms   RTF 2.34
+        #     beam 1    141 ms   RTF 0.40
+        #     beam 5    186 ms   RTF 0.53   <- here
+        #     beam 10   421 ms   RTF 1.20
+        #     beam 20  1169 ms   RTF 3.34
         #
-        # 0.84 is the same place large-v3 sits, and it is the edge: it leaves
-        # ~16% headroom on an idle machine, so a game on the other monitor
-        # pushes it past 1.0, the backlog stops draining, and drop_backlog()
-        # discards audio that is then never transcribed at all. If captions
-        # start missing words under load, this is the first thing to lower.
+        # Beam 10 was affordable at a 0.5 s interval (0.84) and is not at 0.35:
+        # the backlog stops draining, and once max_backlog_sec of it piles up
+        # drop_backlog() discards audio that is then never transcribed at all.
+        # If captions start missing words under load, raise the interval first -
+        # this beam is the overlapping-speech insurance described below.
         #
         # Worth knowing what it buys: on clean single-speaker audio, nothing -
         # beam 5, 10 and 20 returned identical text. The case for it is the one
@@ -70,12 +71,19 @@ TRANSCRIBERS: dict[str, dict] = {
     "Whisper large-v3": {
         "model": "large-v3",
         # Beam 1, unlike the turbo paths, and not for lack of benefit but for
-        # lack of room. large-v3 is already an expensive pass; measured at a
-        # full 12 s buffer, beam 5 puts it at RTF 1.02 on its own - past the
-        # point where the backlog stops draining and audio is discarded.
+        # lack of room. large-v3 is already an expensive pass. At a full 12 s
+        # buffer, against the 0.35 s process_interval_sec:
         #
-        #     beam 1   425 ms   0.85      beam 3   413 ms   0.83
-        #     beam 5   511 ms   1.02  <- over
+        #     beam 1   425 ms   RTF 1.21      beam 3   413 ms   RTF 1.18
+        #     beam 5   511 ms   RTF 1.46
+        #
+        # All of them are over 1.0, beam 1 included - this route no longer fits
+        # the interval, where at 0.5 s it just did (0.85). A later interleaved
+        # run measured beam 1 lower, at 371 ms, which is still RTF 1.06. So this
+        # engine now runs a persistent backlog and will drop audio under
+        # sustained speech. It was already the route the README argues against -
+        # Sugoi is roughly three times cheaper and better on proper nouns - but
+        # anyone choosing it should raise process_interval_sec back to 0.5.
         #
         # Beam search pays when the model is uncertain, which is why it rescued
         # turbo on overlapping speech (39% -> 15% word loss). large-v3 is a
@@ -128,13 +136,14 @@ class Config:
     # and useless. On overlapping speech, which is what a collab actually is,
     # greedy decoding loses 39% of the words and beam 5 loses 15%:
     #
-    #     beam 1   39% lost   146 ms at a full 12 s buffer   RTF 0.29
+    #     beam 1   39% lost   146 ms at a full 12 s buffer   RTF 0.42
     #     beam 2   24% lost
     #     beam 3   24% lost
-    #     beam 5   15% lost   216 ms                         RTF 0.43
+    #     beam 5   15% lost   216 ms                         RTF 0.62
     #
-    # Clean audio is unchanged either way (203/204 words). RTF 0.43 leaves ample
-    # headroom, so the cost is latency that was never the binding constraint.
+    # Clean audio is unchanged either way (203/204 words). RTF is against the
+    # 0.35 s process_interval_sec; 0.62 still leaves headroom, so the cost is
+    # latency that was never the binding constraint.
     beam_size: int = 5
     # Text shown to Whisper before each pass, to bias it towards words it would
     # otherwise mishear. Proper nouns are the case that matters: a name it has
@@ -167,8 +176,8 @@ class Config:
     #
     #     beam 1   23.5 committed   16.1 live tail
     #     beam 5   30.9             26.8
-    #     beam 10  67.2             48.1
-    #     beam 20 149.1            111.6   <- 2.5x beam 10 for identical text
+    #     beam 10  67.2             48.1   <- here
+    #     beam 20 149.1            111.6   2.5x beam 10 for identical text
     #
     # Cost scales with beam width and no setting avoids that: a 300M model on a
     # batch of one is latency-bound on sequential decode steps rather than
@@ -176,12 +185,12 @@ class Config:
     # ~15%, int8 nothing, and beam 50 falls off a cliff entirely (745 ms).
     #
     # The live tail is what makes any of this a real cost - it runs every pass,
-    # not once per utterance, so at 0.5 s passes beam 10 is 0.09 of the
-    # real-time budget against Whisper's 0.31. If it ever needs to come down,
+    # not once per utterance, so at the 0.35 s passes below beam 10 is 0.14 of
+    # the real-time budget against Whisper's 0.77. If it ever needs to come down,
     # lower the preview rather than the committed pass: the preview is a guess
     # that rewrites itself anyway, while committed text amortises over ~8 passes
     # and is nearly free at any beam.
-    mt_beam_size: int = 20
+    mt_beam_size: int = 10
     # NMT models degenerate into repetition loops when handed input they cannot
     # parse, and garbled ASR off a noisy stream is exactly that. Without these an
     # utterance can decode into hundreds of repeated words. The cap is the
@@ -194,6 +203,12 @@ class Config:
     # waiting for silence would mean no English at all while anyone is talking.
     # This is the backstop: translate whatever has accumulated once it spans
     # this long, sentence boundary or not.
+    #
+    # Offered in the GUI rather than left as tuning, because on spontaneous
+    # speech it is the main control over legibility: Whisper emits no
+    # punctuation there, so this decides where lines are cut, and a cut landing
+    # mid-word makes the translator invent a sentence around the fragment. See
+    # ENGINES in window.py for the measured example.
     mt_max_utterance_sec: float = 3.0
     # Don't cut a translation unit at a change of voice if what comes before it
     # is shorter than this. A word or two stranded ahead of a speaker change is
@@ -279,7 +294,34 @@ class Config:
     # --- streaming ---
     # How much fresh audio to accumulate before running inference again. Lower
     # means more responsive captions but more GPU work per second of audio.
-    process_interval_sec: float = 0.5
+    #
+    # This is the strongest latency lever in the program, and it pays twice. A
+    # word waits here once for the pass that first transcribes it and again for
+    # the pass that agrees with it - LocalAgreement commits nothing on a single
+    # sighting - so the interval appears twice on the path from speech to
+    # committed text. Dropping 0.5 to 0.35 takes roughly 0.3 s off it.
+    #
+    # What it costs: each pass re-transcribes the whole buffer, so its cost is
+    # near enough independent of this and RTF is simply cost/interval. Measured
+    # over 116 consecutive 12 s buffers with the arguments transcribe() really
+    # passes - Kotoba beam 5, float16, temperature 0.0 - the pass ran 270 ms
+    # median, 382 ms at p90, 426 ms worst, plus ~48 ms for the Sugoi live tail:
+    #
+    #     interval   RTF median   RTF p90
+    #     0.50 s        0.64        0.86
+    #     0.45 s        0.71        0.96
+    #     0.40 s        0.80        1.07
+    #     0.35 s        0.91        1.23   <- here
+    #
+    # p90 over 1.0 is not the same as dropping audio: a slow pass only adds to
+    # the backlog, and drop_backlog() does not fire until max_backlog_sec of it
+    # accumulates, which a 0.91 median drains. The margin is real but thin.
+    # That measurement is also the pessimistic end - it was taken on audio the
+    # model finds hard, where decoding runs long. The 186 ms figure under
+    # TRANSCRIBERS came from ordinary Japanese speech and puts this at RTF 0.67.
+    # If captions start missing words under load, raise this to 0.45 before
+    # touching beam_size.
+    process_interval_sec: float = 0.35
     # Don't run inference at all until this much speech exists; very short
     # buffers produce garbage and hallucinations.
     min_chunk_sec: float = 1.0

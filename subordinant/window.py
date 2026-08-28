@@ -64,12 +64,59 @@ MIN_OPACITY = 25
 # an engine sets every key in its entry; recognising one only compares these.
 # Otherwise a config saved before a tuning value changed stops matching its own
 # engine, and the picker silently shows the wrong one while something else runs.
-ENGINE_IDENTITY = ("mt_enabled", "task")
+#
+# mt_max_utterance_sec is here rather than treated as tuning because the Sugoi
+# entries below differ by nothing else. Leave it out and they all match on
+# (mt_enabled, task), so load_settings picks whichever comes first and the
+# picker shows 2.0 s while 8.0 s is running.
+ENGINE_IDENTITY = ("mt_enabled", "task", "mt_max_utterance_sec")
 
+# How long speech with no sentence ending in it is held before translating it
+# anyway. It is offered here, spelled out, because it is the single control that
+# decides whether spontaneous speech reads as sentences or as debris, and the
+# right value depends on the source rather than on the machine.
+#
+# Whisper only emits 。 and 、 when it hears a clear sentence-final fall, which
+# scripted material has and live talk does not. With no punctuation to cut on,
+# _flush_translation falls through to this backstop and cuts wherever this many
+# seconds of audio happened to land - which on fast speech is mid-word. Measured
+# on a real caption run, the same clause cut two ways:
+#
+#     ...見えてしま | います...   -> "...I could see what was inside." /
+#                                   "He's here. Do you want to comment?"
+#     ...見えてしまいますよ       -> "...you can see what's inside." /
+#                                   "Guess I'll make that comment."
+#
+# The second half of a severed verb translates as a whole sentence, fluently and
+# entirely invented, because the translator never sees the words either side of
+# the cut. Longer holds mean fewer cuts and so fewer of these, paid for in
+# latency - which the live preview (mt_live_enabled) largely hides, since the
+# unfinished tail keeps moving while the settled text waits.
 ENGINES: dict[str, dict] = {
-    "Sugoi v4 (recommended)": {
+    "Sugoi v4 - utterance 2 s": {
         "mt_enabled": True,
         "task": "transcribe",
+        "mt_max_utterance_sec": 2.0,
+    },
+    "Sugoi v4 - utterance 3 s": {
+        "mt_enabled": True,
+        "task": "transcribe",
+        "mt_max_utterance_sec": 3.0,
+    },
+    "Sugoi v4 - utterance 5 s": {
+        "mt_enabled": True,
+        "task": "transcribe",
+        "mt_max_utterance_sec": 5.0,
+    },
+    "Sugoi v4 - utterance 8 s": {
+        "mt_enabled": True,
+        "task": "transcribe",
+        "mt_max_utterance_sec": 8.0,
+    },
+        "Sugoi v4 (utterance 10.0 s - most context)": {
+        "mt_enabled": True,
+        "task": "transcribe",
+        "mt_max_utterance_sec": 10.0,
     },
     "Whisper large-v3": {
         "mt_enabled": False,
@@ -80,6 +127,19 @@ ENGINES: dict[str, dict] = {
         "task": "transcribe",
     },
 }
+
+_ENGINE_TIP = (
+    "What turns the Japanese into English.\n"
+    "Sugoi is a dedicated translator and the recommended route.\n"
+    "\n"
+    "The utterance figure is how long speech with no sentence ending is\n"
+    "held before translating it anyway. Scripted material - anime, a read\n"
+    "script - carries punctuation and rarely reaches it, so any value\n"
+    "behaves the same. Live conversation carries none, so this decides\n"
+    "where lines get cut: short holds cut mid-word and the translator\n"
+    "invents a sentence around the fragment, long holds read better and\n"
+    "arrive later. Try 5 s on a stream, 2-3 s on anime."
+)
 
 # Engines where one model does both jobs, so the engine dictates the transcriber
 # and the picker for it is locked. large-v3-turbo accepts task="translate" and
@@ -92,6 +152,45 @@ _TRANSCRIBER_TIP = (
     "large-v3-turbo handles any language and is the safe default.\n"
     "Kotoba is Japanese-only, and both faster and more accurate on it.\n"
     "large-v3 is the strongest, but costs roughly twice the time per pass."
+)
+
+
+# Whisper's beam width, offered so it can be compared on real audio. 0 means
+# "whatever the model above asks for" - the per-model defaults in TRANSCRIBERS,
+# which differ because the models can afford different amounts of it.
+#
+# Worth knowing before reaching for it: on clean single-speaker audio this
+# changes almost nothing. Measured over 300 CommonVoice utterances, Kotoba
+# scored 89.84 / 89.77 / 89.79 percent at beam 5 / 10 / 20 - noise. What beam
+# search actually buys is the *overlapping* speech case, where greedy decoding
+# lost 39 percent of the words and beam 5 lost 15 percent. So the reason to
+# raise it is two people talking over each other, not a clearer transcript of
+# one person.
+BEAMS: list[tuple[str, int]] = [
+    ("Auto", 0),
+    ("1", 1),
+    ("3", 3),
+    ("5", 5),
+    ("10", 10),
+    ("20", 20),
+]
+
+_BEAM_TIP = (
+    "How many decodings Whisper keeps in flight before picking one.\n"
+    "Auto uses each model's own default: 5 for the turbo models, 1 for\n"
+    "large-v3, which cannot afford more.\n"
+    "\n"
+    "It costs time per pass, and the models differ sharply. Measured at\n"
+    "a full 12 s buffer, as RTF against the 0.35 s interval - over 1.0\n"
+    "means the backlog stops draining and audio is eventually discarded:\n"
+    "\n"
+    "   Kotoba     beam 1 0.40   beam 5 0.53   beam 10 1.20   beam 20 3.34\n"
+    "   turbo      beam 1 0.42   beam 5 0.62\n"
+    "   large-v3   beam 1 1.21   beam 3 1.18   beam 5 1.46\n"
+    "\n"
+    "On one clear speaker it buys almost nothing. It earns its cost on\n"
+    "people talking over each other, where beam 1 loses 39% of the words\n"
+    "and beam 5 loses 15%."
 )
 
 # Source language of the audio, not of the captions. Kept to the four the
@@ -233,6 +332,55 @@ QFrame#divider {{ background: {BORDER}; max-height: 1px; border: none; }}
 """
 
 
+def _cap_width(combo: QComboBox, chars: int) -> None:
+    """Stop a combo asking for room for its longest entry.
+
+    A combo sizes itself to its widest item, and setMinimumWidth only raises
+    that floor - it cannot lower it. Unchecked, the utterance variants took the
+    bar's preferred width to 2470 px; with this it is 1906, slightly under what
+    it was before they existed.
+
+    This bounds the *preferred* width only. minimumSizeHint keeps accounting for
+    the longest item whatever the size-adjust policy or maximum say, so the
+    window's hard minimum still grew - 1410 px to 1614 px when the Beam control
+    went in. If that ever has to come down, the fix is splitting this bar over
+    two rows, not tuning the numbers here. Text past the cap elides, and the
+    full label is still readable in the popup.
+    """
+    width = combo.fontMetrics().horizontalAdvance("W" * chars) + 34
+    combo.setSizeAdjustPolicy(
+        QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+    )
+    combo.setMinimumContentsLength(chars)
+    combo.setMaximumWidth(width)
+
+
+def _engine_for(cfg: Config) -> str:
+    """Which engine entry describes cfg. Never returns nothing.
+
+    Exact match first. Failing that, mt_max_utterance_sec is snapped to the
+    nearest entry that agrees on everything else, because a config carrying a
+    hold this list does not offer - hand-edited, or saved before the list
+    changed - would otherwise match nothing and leave the picker showing its
+    first item while something else entirely was running. That is the failure
+    ENGINE_IDENTITY exists to prevent, and adding a tuning value to it reopens
+    it unless the miss is caught here.
+    """
+    others = [k for k in ENGINE_IDENTITY if k != "mt_max_utterance_sec"]
+    for name, over in ENGINES.items():
+        if all(getattr(cfg, k) == over[k] for k in ENGINE_IDENTITY if k in over):
+            return name
+    near = [
+        (abs(over["mt_max_utterance_sec"] - cfg.mt_max_utterance_sec), name)
+        for name, over in ENGINES.items()
+        if "mt_max_utterance_sec" in over
+        and all(getattr(cfg, k) == over[k] for k in others if k in over)
+    ]
+    if near:
+        return min(near)[1]
+    return next(iter(ENGINES))
+
+
 class TranscriptWindow(QMainWindow):
     """Scrollable session transcript, with the live line pinned underneath."""
 
@@ -335,16 +483,29 @@ class TranscriptWindow(QMainWindow):
         self._transcriber = QComboBox()
         for name in TRANSCRIBERS:
             self._transcriber.addItem(name)
+        _cap_width(self._transcriber, 18)
         self._transcriber.setToolTip(_TRANSCRIBER_TIP)
-        self._transcriber.setMinimumWidth(190)
         bar.addWidget(self._transcriber)
+
+        # Sits with the transcriber because it tunes that model rather than
+        # being a choice of its own, and its cost depends on which one is up.
+        beam_label = QLabel("Beam")
+        beam_label.setToolTip(_BEAM_TIP)
+        bar.addWidget(beam_label)
+        self._beam = QComboBox()
+        for label, value in BEAMS:
+            self._beam.addItem(label, value)
+        _cap_width(self._beam, 4)
+        self._beam.setToolTip(_BEAM_TIP)
+        bar.addWidget(self._beam)
 
         bar.addSpacing(10)
         bar.addWidget(QLabel("Translate with"))
         self._engine = QComboBox()
         for name in ENGINES:
             self._engine.addItem(name)
-        self._engine.setMinimumWidth(180)
+        _cap_width(self._engine, 20)
+        self._engine.setToolTip(_ENGINE_TIP)
         bar.addWidget(self._engine)
 
         bar.addSpacing(10)
@@ -386,6 +547,7 @@ class TranscriptWindow(QMainWindow):
         # Only offer Apply once something actually differs from what is running.
         self._language.currentIndexChanged.connect(self._settings_changed)
         self._transcriber.currentIndexChanged.connect(self._settings_changed)
+        self._beam.currentIndexChanged.connect(self._settings_changed)
         self._engine.currentIndexChanged.connect(self._settings_changed)
         self._diarize.toggled.connect(self._settings_changed)
         # Whisper's own translation is one model doing both jobs, so picking it
@@ -439,11 +601,15 @@ class TranscriptWindow(QMainWindow):
     def _settings_changed(self) -> None:
         self._apply.setEnabled(self.pending_settings() != self._applied)
 
-    def pending_settings(self) -> tuple[str, str, str, bool, int, str]:
-        """(language, transcriber, engine, labelling, speaker cap, glossary)."""
+    def pending_settings(self) -> tuple[str, str, int, str, bool, int, str]:
+        """(language, transcriber, beam, engine, labelling, speaker cap, glossary).
+
+        beam is 0 for "whatever the transcriber asks for".
+        """
         return (
             self._language.currentData(),
             self._transcriber.currentText(),
+            self._beam.currentData(),
             self._engine.currentText(),
             self._diarize.isChecked(),
             self._speaker_count.currentData(),
@@ -460,14 +626,16 @@ class TranscriptWindow(QMainWindow):
         idx = self._language.findData(cfg.language)
         if idx >= 0:
             self._language.setCurrentIndex(idx)
-        for name, over in ENGINES.items():
-            if all(getattr(cfg, k) == over[k] for k in ENGINE_IDENTITY if k in over):
-                self._engine.setCurrentText(name)
-                break
+        self._engine.setCurrentText(_engine_for(cfg))
         for name, over in TRANSCRIBERS.items():
             if cfg.model == over["model"]:
                 self._transcriber.setCurrentText(name)
                 break
+        # Show Auto rather than the number whenever the running beam is simply
+        # what this model asks for, so the control reads as "not overridden".
+        default = TRANSCRIBERS.get(self._transcriber.currentText(), {}).get("beam_size")
+        idx = self._beam.findData(0 if cfg.beam_size == default else cfg.beam_size)
+        self._beam.setCurrentIndex(idx if idx >= 0 else 0)
         self._sync_transcriber()
         self._prompt.setText(cfg.initial_prompt)
         self._diarize.setChecked(cfg.diarize_enabled)

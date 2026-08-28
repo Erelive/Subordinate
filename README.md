@@ -58,15 +58,32 @@ decisions:
 
 | Transcribe with | Speed | Notes |
 |---|---|---|
-| **Whisper large-v3-turbo** | 210 ms, RTF 0.42 | any language; the safe default |
-| **Kotoba-Whisper v2.0** | 184 ms, RTF 0.37 | Japanese only, and *faster* than turbo |
+| **Whisper large-v3-turbo** | 210 ms, RTF 0.60 | any language; the safe default |
+| **Kotoba-Whisper v2.0** | 184 ms, RTF 0.53 | Japanese only, and *faster* than turbo |
 | **Whisper large-v3** | ~2x turbo | strongest, and the only one that can translate |
+
+The **Beam** picker beside this one overrides `beam_size` for whichever model is
+selected; Auto keeps the per-model default. Raising it is worth trying on people
+talking over each other, where beam 1 loses 39% of the words and beam 5 loses
+15%. On a single clear speaker it does almost nothing - over 300 CommonVoice
+utterances Kotoba scored 89.84 / 89.77 / 89.79 percent at beam 5 / 10 / 20.
 
 | Translate with | What runs | Notes |
 |---|---|---|
-| **Sugoi v4** | Whisper transcribes, Sugoi translates | recommended; keeps the source text |
-| **Whisper large-v3** | one model, `task=translate` | English only, RTF 0.92; locks the transcriber to large-v3 |
+| **Sugoi v4** (utterance 2 / 3 / 5 / 8 s) | Whisper transcribes, Sugoi translates | recommended; keeps the source text |
+| **Whisper large-v3** | one model, `task=translate` | English only, RTF 1.31 - see below; locks the transcriber to large-v3 |
 | **No translation** | transcription only | source language only |
+
+The seconds on the Sugoi entries are `mt_max_utterance_sec`: how long speech
+carrying no sentence ending is held before being translated anyway. Whisper only
+emits `。` and `、` when it hears a clear sentence-final fall, which scripted
+material has and live conversation does not, so on a stream this backstop is what
+decides where lines get cut. Cut too early and it lands mid-word - the translator
+then renders the orphaned half as a whole sentence, fluently and entirely
+invented. `...見えてしま` / `います...` came back as *"I could see what was
+inside."* / *"He's here."*, where the uncut `...見えてしまいますよ` gives
+*"...you can see what's inside."* Longer holds cut less often and read better,
+and arrive later. Try 5 s on a stream, 2-3 s on anime.
 
 Measured at a 12 s buffer on an RTX 4080 SUPER, Japanese audio. Kotoba is a
 Distil-Whisper: the encoder is the full 32 layers but the decoder is cut from
@@ -155,16 +172,19 @@ these settings. Delete that file to return to English transcription.
 
 It is more accurate per sentence, and it loses words to pay for it. The pipeline
 re-transcribes the whole rolling buffer every pass, so cost grows with buffer
-length; measured on an RTX 4080 SUPER, per pass against 0.5 s of fresh audio:
+length; measured on an RTX 4080 SUPER. RTF is per pass against
+`process_interval_sec`, which is 0.35 s:
 
 | engine | 4 s buffer | 8 s | 12 s |
 |---|---|---|---|
-| `large-v3-turbo` transcribe | 101 ms (RTF 0.20) | 124 ms (0.25) | 152 ms (**0.30**) |
-| `large-v3` translate | 214 ms (0.43) | 318 ms (0.64) | 416 ms (**0.83**) |
+| `large-v3-turbo` transcribe | 101 ms (RTF 0.29) | 124 ms (0.35) | 152 ms (**0.43**) |
+| `large-v3` translate | 214 ms (0.61) | 318 ms (0.91) | 416 ms (**1.19**) |
 
-RTF 0.83 leaves 17% headroom on an otherwise idle machine. Continuous speech
-keeps the buffer at its cap, and anything else using the GPU - a game on the
-other monitor, most obviously - pushes it past 1.0. The backlog then grows every
+Turbo at 0.43 has room to spare. `large-v3` translate does not: at a full buffer
+it is past 1.0 on its own, so that route needs `process_interval_sec` raised
+back to 0.5 to fit. Continuous speech keeps the buffer at its cap, and anything
+else using the GPU - a game on the other monitor, most obviously - costs more
+still. The backlog then grows every
 pass until `max_backlog_sec`, at which point `drop_backlog()` discards that audio
 outright. Those words are never transcribed at all, which is what "it misses
 words" looks like from the outside.
@@ -188,14 +208,16 @@ Measured on an RTX 4080 SUPER at the default 12 s buffer:
 
 | | ms/pass | RTF | Output |
 |---|---|---|---|
-| `--mt` (turbo + NMT) | 154 + ~6 amortised | **0.31** | Japanese *and* English |
-| `--task translate` (large-v3) | 460 | **0.92** | English only |
+| `--mt` (turbo + NMT) | 154 + ~8 amortised | **0.46** | Japanese *and* English |
+| `--task translate` (large-v3) | 460 | **1.31** | English only |
 
 `--mt` is roughly 3x cheaper because the NMT stage runs once per *utterance* -
 about one call in eight passes - rather than on every pass over the rolling
 buffer. At ~46 ms per call it amortises to single-digit milliseconds per pass. The
-`--task translate` route runs at RTF 0.92, which leaves ~40 ms of headroom before
-`max_backlog_sec` starts discarding audio outright.
+`--task translate` route runs at RTF 1.31 against the 0.35 s interval, so it no
+longer fits one: the backlog grows every pass until `max_backlog_sec`, at which
+point `drop_backlog()` discards that audio outright. Raise `process_interval_sec`
+to 0.5 if you want that route, which puts it back at 0.92.
 
 Quality favours `--mt` too. Whisper's translate task was a training side
 objective, not a translation system, and it shows most on proper nouns.
@@ -286,7 +308,7 @@ translated every pass and shown above the Japanese it came from, dimmed - the
 same contract the unconfirmed source text already has. The settled translation
 still drops into the transcript when the sentence ends, unchanged.
 
-It costs 17-46 ms per pass, an added RTF of 0.03-0.09, and only re-runs when the
+It costs 17-46 ms per pass, an added RTF of 0.05-0.13, and only re-runs when the
 tail has actually changed. Turn it off if the movement is distracting; nothing
 else changes.
 
@@ -309,7 +331,7 @@ line goes missing from a collab, this is almost always why - not the translator,
 and not a dropped buffer.
 
 What helps is beam search. On the same overlapping audio, `beam_size` 5 loses 15%
-where greedy loses 39%, and costs RTF 0.43 against 0.29 - latency that was never
+where greedy loses 39%, and costs RTF 0.62 against 0.42 - latency that was never
 the binding constraint here. It is the default for that reason. On clean audio
 the two are indistinguishable, which is why the original measurement, taken on
 clean audio, concluded beams were not worth it.
@@ -360,7 +382,7 @@ are handed to the translator as one unit, and one person's sentence gets finishe
 by the next person's words. That is where run-ons in the transcript came from.
 
 It costs a 28 MB model and almost nothing at runtime - about 33 ms per second of
-speech on the CPU, off the GPU path, an RTF around 0.03 against Whisper's 0.31.
+speech on the CPU, off the GPU path, an RTF around 0.04 against Whisper's 0.53.
 
 **Set the number of people** if you know it. That cap is by far the most reliable
 control, because the thing that splits one person into several is the same person
@@ -459,7 +481,9 @@ The settings worth touching:
 - `mt_model` - the NMT model; defaults to Sugoi v4 JA->EN
 - `mt_source_lang` / `mt_target_lang` - which SentencePiece pair to load
 - `mt_beam_size` - beam search is nearly free here; it runs per utterance
-- `mt_max_utterance_sec` - translate unpunctuated speech after this long
+- `mt_max_utterance_sec` - translate unpunctuated speech after this long; the
+  Translate-with picker offers 2/3/5/8 s, and on live speech it is the main
+  control over whether lines read as sentences or as fragments
 - `mt_repetition_penalty`, `mt_no_repeat_ngram_size` - stop NMT repeat loops
 - `diarize_enabled` - label lines with who said it (`--speakers`)
 - `diarize_max_speakers` - how many people are talking; the most useful setting
@@ -468,9 +492,13 @@ The settings worth touching:
 - `diarize_threshold` - lower to split fewer speakers, raise to merge fewer
 - `mt_min_chunk_sec` - ignore speaker changes that would strand a fragment
 - `mt_live_enabled` - preview the unfinished tail; the toolbar toggles it
-- `beam_size` - 5 by default; 1 loses 39% of words on overlapping speech
+- `beam_size` - 5 by default; 1 loses 39% of words on overlapping speech. The
+  toolbar's Beam picker overrides it (Auto keeps each model's own default);
+  on one clear speaker it changes almost nothing, and it is expensive on
+  large-v3 - see the picker's tooltip for the per-model cost
 - `compute_type` - `int8_float16` roughly halves VRAM at a small accuracy cost
-- `process_interval_sec` - lower is more responsive and more GPU work
+- `process_interval_sec` - 0.35 s; the strongest latency lever, and it pays
+  twice, since LocalAgreement needs two passes to commit a word
 - `max_buffer_sec` - longer context is more accurate but pushes RTF towards 1.0
 - `font_size`, `max_width_frac`, `bottom_margin_frac` - overlay placement
 - `overlay_enabled` - draw the click-through overlay as well as the window
@@ -480,7 +508,7 @@ The settings worth touching:
 
 ```
 WASAPI loopback -> downmix + resample to 16 kHz -> energy gate
-   -> rolling buffer -> Whisper (every ~0.5 s) -> LocalAgreement-2 -> overlay
+   -> rolling buffer -> Whisper (every ~0.35 s) -> LocalAgreement-2 -> overlay
 ```
 
 **Capture.** WASAPI loopback records the default render device, so any app's
