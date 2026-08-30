@@ -19,6 +19,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 SITE_PACKAGES = Path(SPECPATH) / ".venv" / "Lib" / "site-packages"
 SYSTEM32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
 
+
 # PyQt6 vendors an MSVC runtime from 2019 (14.26) in PyQt6\Qt6\bin and adds that
 # directory to the DLL search path. CTranslate2 is linked against a newer one and
 # faults on model construction if it binds to Qt's copy. Keeping exactly one
@@ -49,8 +50,38 @@ for dll in SITE_PACKAGES.glob("nvidia/*/bin/*.dll"):
 # Silero VAD ONNX weights and the tokenizer files faster-whisper ships.
 datas += collect_data_files("faster_whisper")
 
-for package in ("onnxruntime", "av", "pyaudiowpatch", "soxr", "sentencepiece"):
+# onnxruntime's DLLs must keep their onnxruntime\capi\ layout, because
+# subordinant.cuda.preload_onnxruntime looks for exactly that path under
+# sys._MEIPASS. It has to load this copy by absolute path before sherpa-onnx
+# binds to the older onnxruntime.dll that Windows 11 ships in System32 - which
+# is a segfault, not an error. collect_dynamic_libs already preserves that
+# layout; the requirement is noted here so it is not "tidied" into the root.
+for package in ("onnxruntime", "av", "pyaudiowpatch", "soxr"):
     binaries += collect_dynamic_libs(package)
+
+# sentencepiece is copied by hand rather than declared as a hidden import.
+#
+# PyInstaller imports every collected package in one isolated subprocess to walk
+# its binary dependencies, and that subprocess has already imported PyQt6. Qt puts
+# its vendored MSVC runtime on the DLL search path, _sentencepiece.pyd binds to
+# that instead of the system build, and the subprocess dies with an access
+# violation (0xC0000005) - the same collision described at the top of this file.
+# The app avoids it by pinning the system runtime in subordinant/__init__ before
+# Qt loads; PyInstaller's analysis subprocess has no such protection and no hook
+# to add one.
+#
+# Copying the files directly keeps the package out of that import list. It is
+# safe because sentencepiece has nothing to discover: one statically linked .pyd
+# and a few pure-Python modules, no sibling DLLs.
+SENTENCEPIECE = SITE_PACKAGES / "sentencepiece"
+binaries += [(str(p), "sentencepiece") for p in SENTENCEPIECE.glob("*.pyd")]
+datas += [(str(p), "sentencepiece") for p in SENTENCEPIECE.glob("*.py")]
+
+# The app icon. Stamped on the executables below so Explorer and the taskbar
+# show it, and also shipped as a file, because Qt loads it at runtime for the
+# window and tray icons - an exe's embedded icon is not reachable from Qt.
+ICON = Path(SPECPATH) / "assets" / "subordinant.ico"
+datas += [(str(ICON), "assets")]
 
 a = Analysis(
     ["main.py"],
@@ -61,15 +92,25 @@ a = Analysis(
         "subordinant",
         "pyaudiowpatch",
         "soxr",
-        # The translation stage. Imported lazily inside Translator.__init__, so
-        # PyInstaller's static analysis does not find either of these.
-        "sentencepiece",
+        # Imported lazily inside Translator.__init__, so static analysis misses
+        # it. sentencepiece is deliberately absent - see the note above.
         "huggingface_hub",
+        # Likewise lazy, inside SpeakerTracker.__init__. Unlike sentencepiece
+        # this one is safe to let PyInstaller import for analysis - checked
+        # directly, it survives being imported after PyQt6 without the runtime
+        # pin, so it does not need the copy-by-hand treatment.
+        "sherpa_onnx",
     ],
     hookspath=[],
     runtime_hooks=[],
-    # Pulled in transitively but unused, and each costs tens of megabytes.
     excludes=[
+        # Excluded from analysis, not from the bundle - the files are copied in
+        # by hand above. PyInstaller's modulegraph scans bytecode, so it finds
+        # the lazy import inside Translator.__init__ even without a hidden
+        # import, and importing it for dependency analysis crashes the isolated
+        # subprocess. See the note beside SENTENCEPIECE above.
+        "sentencepiece",
+        # Pulled in transitively but unused, and each costs tens of megabytes.
         "tkinter",
         "matplotlib",
         "scipy",
@@ -110,6 +151,7 @@ exe = EXE(
     upx=False,
     # No console window: the tray icon is the app's only chrome.
     console=False,
+    icon=str(ICON),
 )
 
 # Same app with a console attached. Without it a failure inside a bundled native
@@ -124,6 +166,7 @@ exe_debug = EXE(
     strip=False,
     upx=False,
     console=True,
+    icon=str(ICON),
 )
 
 coll = COLLECT(

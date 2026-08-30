@@ -3,7 +3,11 @@ PyAudioWPatch==0.2.12.7
 
 # ASR: CTranslate2 backend, bundles a Silero VAD ONNX model
 faster-whisper==1.2.0
-# faster-whisper 1.2.0 imports requests but does not declare it
+# faster-whisper 1.2.0 imports requests but does not declare it. It is also the
+# whole transport for the LLM translation engines (subordinant/llm_translate.py):
+# those talk to a local Ollama over HTTP, so choosing that route costs no new
+# dependency here and nothing extra in the bundle - the model lives in Ollama,
+# not in this process.
 requests==2.32.5
 
 # CUDA runtime libraries CTranslate2 links against on Windows.
@@ -18,6 +22,16 @@ soxr==0.5.0.post1
 # itself runs on CTranslate2, which faster-whisper already pulls in, so this is
 # the only extra dependency translation costs.
 sentencepiece==0.2.2
+
+# Speaker embeddings for the labelling stage (subordinant/diarize.py). Chosen
+# over pyannote.audio because that needs PyTorch (~2.5 GB) and a gated model
+# download, either of which would end the double-click-to-run story.
+sherpa-onnx==1.13.6
+# Pulled in by faster-whisper for its Silero VAD, but pinned here because
+# sherpa-onnx binds to this DLL directly. Windows 11 ships its own, older
+# onnxruntime.dll in System32, and sherpa-onnx segfaults against it - see
+# cuda.preload_onnxruntime for how the right copy is pinned.
+onnxruntime==1.29.0
 
 numpy==2.2.1
 

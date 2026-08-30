@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import shutil
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
 from . import cuda
-from .config import SAMPLE_RATE, Config
+from .config import (
+    DECODER_LAYERS,
+    MONOLINGUAL,
+    SAMPLE_RATE,
+    TOKENIZER_DONOR,
+    Config,
+)
 
 cuda.bootstrap()  # must precede the faster_whisper import
 
@@ -56,7 +65,20 @@ _HALLUCINATIONS = {
 #
 # Nothing errors in either case, which is the reason to say something here: bad
 # captions otherwise look like an audio or language problem.
-_WEAK_TRANSLATE = ("turbo", "distil")
+_WEAK_TRANSLATE = ("turbo", "distil", "kotoba", "anime")
+
+# Models an initial prompt makes worse instead of better. Anime-Whisper's card
+# is explicit that one "causes hallucinations and significantly degraded
+# performance", which is the reverse of what a prompt does everywhere else
+# here - biasing the decoder towards names it would otherwise guess at.
+#
+# Nothing errors, and the captions do not look broken; they just quietly get
+# worse, which is the whole reason to say something.
+_PROMPT_HOSTILE = ("anime-whisper",)
+
+# Decoder attention heads at d_model 1280, which is what every model in
+# DECODER_LAYERS is distilled from.
+_ALIGNMENT_HEADS = 20
 
 
 def translate_warning(cfg: Config) -> str | None:
@@ -73,6 +95,139 @@ def translate_warning(cfg: Config) -> str | None:
     )
 
 
+def transcribe_warning(cfg: Config) -> str | None:
+    """Return a warning if cfg points a single-language model at another one."""
+    only = MONOLINGUAL.get(cfg.model)
+    if only is None or cfg.language == only:
+        return None
+    return (
+        f"{cfg.model} is trained on {only!r} only; it will still accept "
+        f"language={cfg.language!r} and return confident nonsense. Switch the "
+        "audio language or pick a multilingual model."
+    )
+
+
+def prompt_warning(cfg: Config) -> str | None:
+    """Return a warning if cfg prompts a model that prompting degrades."""
+    if not cfg.initial_prompt.strip():
+        return None
+    name = cfg.model.lower()
+    if not any(marker in name for marker in _PROMPT_HOSTILE):
+        return None
+    return (
+        f"Names go to the translator on {cfg.model}, not the transcriber - "
+        "its model card reports that a decoder prompt causes hallucinations. "
+        "Write readings for kanji names (天音 = Amane) to get the most of it."
+    )
+
+
+def _snapshot(model_id: str) -> Path | None:
+    """The local directory holding model_id, downloading it if need be."""
+    path = Path(model_id)
+    if path.is_dir():
+        return path
+    try:
+        from huggingface_hub import snapshot_download
+
+        return Path(snapshot_download(model_id))
+    except Exception as exc:  # noqa: BLE001 - network, auth and disk all land here
+        log.warning("could not resolve %s: %s", model_id, exc)
+        return None
+
+
+def repair_tokenizer(model_id: str) -> None:
+    """Supply a tokenizer.json to conversions published without one.
+
+    Without this the model decodes against whisper-tiny's vocabulary, which
+    is one token shorter than the large-v3 one it was trained with, so every
+    control token from 50358 up - the tasks, <|notimestamps|>, every timestamp
+    - comes back shifted. Captions scramble and word timings go meaningless
+    while the text tokens underneath still decode, so nothing raises.
+
+    See TOKENIZER_DONOR in config for why the donor is the right vocabulary.
+    Only the one file is fetched, not the donor's 1.5 GB of weights.
+    """
+    donor = TOKENIZER_DONOR.get(model_id)
+    if donor is None:
+        return  # not a conversion we know to be missing one
+
+    path = _snapshot(model_id)
+    if path is None:
+        return
+    target = path / "tokenizer.json"
+    if target.exists():
+        return  # already repaired, or shipped correct
+
+    try:
+        from huggingface_hub import hf_hub_download
+
+        source = hf_hub_download(donor, "tokenizer.json")
+        shutil.copyfile(source, target)
+    except Exception as exc:  # noqa: BLE001 - network, auth and disk all land here
+        log.warning(
+            "could not supply tokenizer.json for %s from %s: %s. Captions "
+            "from this model will be scrambled - it will decode against the "
+            "wrong vocabulary and nothing will raise.",
+            model_id,
+            donor,
+            exc,
+        )
+        return
+    log.info("supplied tokenizer.json for %s from %s", model_id, donor)
+
+
+def repair_alignment_heads(model_id: str) -> None:
+    """Drop alignment heads that name decoder layers the model does not have.
+
+    Distil models are shipped with the alignment_heads of the model they were
+    distilled from, which name decoder layers 7-25 on a decoder that has two.
+    faster-whisper reads them straight out of config.json when word_timestamps
+    is on and indexes the list of layers with them, so the mismatch is an
+    out-of-bounds read inside CTranslate2: the process segfaults, with no
+    traceback and nothing written to the log. Repairing the file is the only
+    place to intervene, because the heads are read during construction.
+
+    Rewrites the snapshot in place - the config is a few hundred bytes beside a
+    1.5 GB model.bin, the edit is idempotent, and the model cannot be used for
+    anything else in this program without it.
+    """
+    layers = DECODER_LAYERS.get(model_id)
+    if layers is None:
+        return  # not a model we know to be mis-shipped
+
+    path = _snapshot(model_id)
+    if path is None:
+        return
+
+    config = path / "config.json"
+    try:
+        data = json.loads(config.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("could not read %s: %s", config, exc)
+        return
+
+    heads = data.get("alignment_heads") or []
+    if all(layer < layers for layer, _head in heads):
+        return  # already repaired, or shipped correct
+
+    # Every head of the last decoder layer. The published pairs are a curated
+    # subset chosen for attending to time cleanly, and no such list exists for
+    # these models; taking the whole layer is the closest available substitute,
+    # and it puts word boundaries within ~40 ms of turbo's on the same audio.
+    data["alignment_heads"] = [[layers - 1, h] for h in range(_ALIGNMENT_HEADS)]
+    try:
+        config.write_text(json.dumps(data), encoding="utf-8")
+    except OSError as exc:
+        log.warning("could not repair %s: %s", config, exc)
+        return
+    log.info(
+        "repaired alignment heads for %s: %d pairs named decoder layers past %d",
+        model_id,
+        len(heads),
+        layers - 1,
+    )
+
+
 @dataclass(frozen=True)
 class Word:
     start: float
@@ -84,9 +239,15 @@ class Word:
 class Transcriber:
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        warning = translate_warning(cfg)
-        if warning:
-            log.warning("%s", warning)
+        checks = (translate_warning, transcribe_warning, prompt_warning)
+        for warning in (check(cfg) for check in checks):
+            if warning:
+                log.warning("%s", warning)
+        # Both must precede construction: the heads are read as the model is
+        # built, and a bad set faults the process instead of raising, while
+        # the tokenizer is resolved once and kept for the model's lifetime.
+        repair_alignment_heads(cfg.model)
+        repair_tokenizer(cfg.model)
         t0 = time.perf_counter()
         try:
             self.model = WhisperModel(
@@ -112,12 +273,37 @@ class Transcriber:
         # prompt, and warming the wrong one leaves the first caption slow, which
         # is the entire thing this method exists to prevent.
         segments, _ = self.model.transcribe(
-            noise, language=self.cfg.language, task=self.cfg.task, beam_size=1
+            noise,
+            language=self.cfg.language,
+            task=self.cfg.task,
+            beam_size=1,
+            # Warming the same decoder path the real passes use, prompt included
+            # - a prompt changes the context length and so the cost.
+            initial_prompt=self.cfg.initial_prompt or None,
         )
         list(segments)  # the generator is lazy; force it
         elapsed = time.perf_counter() - t0
         log.info("warmup pass: %.2fs", elapsed)
         return elapsed
+
+    def _asr_prompt(self) -> str | None:
+        """The Names box as a decoder prompt, where the model tolerates one.
+
+        None rather than "" so faster-whisper skips the prompt path entirely
+        when unset - and None as well on a model listed in _PROMPT_HOSTILE,
+        which a prompt makes measurably worse rather than better.
+
+        Nothing is lost by that. A name reaching the captions wrong is
+        usually not the transcriber mishearing the audio - it is the
+        translator picking a reading for kanji it guessed at, 天音 coming
+        back as "Tenki" rather than "Amane". The box goes to the translation
+        stage as a glossary either way; see LLMTranslator.
+        """
+        if not self.cfg.initial_prompt:
+            return None
+        if any(m in self.cfg.model.lower() for m in _PROMPT_HOSTILE):
+            return None
+        return self.cfg.initial_prompt
 
     def transcribe(self, audio: np.ndarray) -> list[Word]:
         """Transcribe a buffer of mono 16 kHz float32 audio into timed words."""
@@ -129,8 +315,10 @@ class Transcriber:
             language=self.cfg.language,
             task=self.cfg.task,
             beam_size=self.cfg.beam_size,
+            no_repeat_ngram_size=self.cfg.no_repeat_ngram_size,
             word_timestamps=True,
             vad_filter=self.cfg.vad_filter,
+            initial_prompt=self._asr_prompt(),
             # Streaming re-transcribes an overlapping buffer every pass. Feeding
             # the previous text back in makes Whisper loop on its own output.
             condition_on_previous_text=False,

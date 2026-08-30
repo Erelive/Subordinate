@@ -24,8 +24,36 @@ from .config import SAMPLE_RATE, Config
 log = logging.getLogger(__name__)
 
 
+# Sentence and clause marks, in both the Japanese and ASCII forms Whisper emits.
+_PUNCT = "。、．，…「」『』.,!?！？;:；："
+
+# How much repeated text it takes to believe Whisper actually repeated itself,
+# rather than two different words happening to share a character. Three is
+# enough to exclude single particles while still catching the real case, which
+# is a whole word or phrase re-emitted at the head of the next pass. The cost of
+# being wrong in this direction is one duplicated short word; in the other, it
+# is a silently deleted one.
+_MIN_REPEAT_CHARS = 3
+
+
 def _norm(text: str) -> str:
-    return text.strip().lower()
+    """Normalise a word for the agreement comparison, ignoring punctuation.
+
+    Whisper attaches a sentence mark only once it has heard enough to decide the
+    sentence ended, so the same word arrives as 'します' on one pass and
+    'します。' on the next. Comparing those literally makes LocalAgreement stall
+    at exactly the sentence boundaries - the words whose punctuation matters most
+    - and what finally reaches the caption, and the translation stage after it,
+    is an unpunctuated run-on.
+
+    Ignoring the marks here lets the word commit, and because flush() keeps the
+    incoming copy, the punctuated form is the one that survives.
+    """
+    stripped = text.strip().lower()
+    core = stripped.strip(_PUNCT)
+    # A token that is nothing but punctuation still has to compare as itself,
+    # or every one of them would normalise to "" and match each other.
+    return core or stripped
 
 
 class HypothesisBuffer:
@@ -57,7 +85,16 @@ class HypothesisBuffer:
         for n in range(1, max_n + 1):
             tail = " ".join(_norm(w.text) for w in self.committed[-n:])
             head = " ".join(_norm(w.text) for w in self._incoming[:n])
-            if tail == head:
+            # Length is the evidence, not the match. Japanese tokenises into one
+            # and two character pieces - た, て, の, し - which recur constantly,
+            # so a short match is a coincidence rather than a repeat, and
+            # deleting it removes the real first word of the next utterance. It
+            # showed up as transcript lines beginning mid-word.
+            #
+            # Timestamps cannot settle this: the buffer is trimmed to
+            # last_committed_time, so a genuine repeat and a genuinely new word
+            # both begin at almost exactly that point.
+            if tail == head and len(tail.replace(" ", "")) >= _MIN_REPEAT_CHARS:
                 del self._incoming[:n]
                 break
 
@@ -172,8 +209,15 @@ class StreamingTranscriber:
         committed = [w for w in self.hypothesis.committed if w.end >= cutoff]
         return committed, self.hypothesis.unstable
 
-    def prune_history(self, keep_sec: float) -> None:
-        cutoff = self.stream_time - keep_sec
+    def prune_history(self, keep_sec: float, not_before: float = float("inf")) -> None:
+        """Drop settled words older than keep_sec, but never past `not_before`.
+
+        The caller passes how far translation has got as `not_before`. Without
+        it, a long stretch of unbroken speech can push words out of this list
+        before the MT stage ever sees them, and the utterance simply vanishes -
+        no source line, no English, nothing to notice it by.
+        """
+        cutoff = min(self.stream_time - keep_sec, not_before)
         if len(self.hypothesis.committed) > 512:
             self.hypothesis.committed = [
                 w for w in self.hypothesis.committed if w.end >= cutoff

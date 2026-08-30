@@ -1,10 +1,18 @@
-"""Make the pip-installed CUDA libraries findable on Windows.
+"""Make the right copy of each native library win on Windows.
+
+Two separate problems, both of which fault the process rather than raising:
 
 nvidia-cublas-cu12 and nvidia-cudnn-cu12 drop their DLLs under
 site-packages\\nvidia\\*\\bin, which is not on the DLL search path. CTranslate2
 loads them by name at import time, so this has to run *before* faster_whisper is
 imported or the model falls back to a "Library cublas64_12.dll is not found"
 error.
+
+And three of the libraries here - the MSVC runtime, ONNX Runtime, and cuBLAS -
+are supplied by more than one package *and* by Windows itself. Windows resolves
+a DLL request by base name to whichever copy is found first, or to one already
+loaded, so the preload helpers below pin the correct build before anything else
+can claim the name.
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ log = logging.getLogger(__name__)
 
 _done = False
 _preloaded = False
+_ort_preloaded = False
 
 # PyQt6 ships its own copy of the MSVC runtime in PyQt6\Qt6\bin and puts that
 # directory on the DLL search path when imported. CTranslate2's native library
@@ -60,12 +69,61 @@ def preload_msvc_runtime() -> list[str]:
     return loaded
 
 
+def preload_onnxruntime() -> str | None:
+    """Pin the pip build of ONNX Runtime before sherpa-onnx can bind to Windows'.
+
+    Windows 11 ships its own C:\\Windows\\System32\\onnxruntime.dll - 1.17.1 on
+    this machine, part of the OS rather than of anything installed here.
+    sherpa-onnx links onnxruntime.dll by base name and its .pyd carries no copy,
+    so System32 wins the search and the process dies on the first model load
+    with:
+
+        The requested API version [27] is not available, only API versions
+        [1, 17] are supported in this build. Current ORT Version is: 1.17.1
+
+    It is a segfault, not an exception, so there is nothing to catch. Importing
+    onnxruntime first does not help - its pybind module links ORT statically and
+    never loads a DLL under that base name for the loader to reuse. Loading the
+    pip copy explicitly by absolute path does, exactly as preload_msvc_runtime
+    does for the runtime above.
+    """
+    global _ort_preloaded
+    if _ort_preloaded or sys.platform != "win32":
+        return None
+    _ort_preloaded = True
+
+    import ctypes
+
+    for root in _roots():
+        # site-packages layout, then PyInstaller's, which flattens capi/ up one
+        # level for some collect_dynamic_libs results.
+        for rel in ("onnxruntime/capi/onnxruntime.dll", "onnxruntime/onnxruntime.dll"):
+            dll = root / rel
+            if not dll.exists():
+                continue
+            try:
+                ctypes.WinDLL(str(dll))
+            except OSError as exc:
+                log.debug("could not preload %s: %s", dll, exc)
+                continue
+            log.debug("pinned ONNX Runtime: %s", dll)
+            return str(dll)
+
+    # Not fatal on its own: if no bundled copy exists the system one may still
+    # satisfy whatever asked for it. It is only sherpa-onnx that needs a newer
+    # API than Windows' build provides.
+    log.debug("no bundled onnxruntime.dll found; leaving resolution to Windows")
+    return None
+
+
 def _roots() -> list[Path]:
     roots = [Path(entry) for entry in sys.path if entry]
-    # PyInstaller lays the same tree out next to the executable.
+    # PyInstaller lays the same tree out next to the executable. It goes first:
+    # a frozen build ships the versions it was tested against, and if anything
+    # else on sys.path also supplies one, the bundled copy is the right answer.
     frozen = getattr(sys, "_MEIPASS", None)
     if frozen:
-        roots.append(Path(frozen))
+        roots.insert(0, Path(frozen))
     return roots
 
 
