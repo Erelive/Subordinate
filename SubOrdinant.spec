@@ -77,6 +77,12 @@ SENTENCEPIECE = SITE_PACKAGES / "sentencepiece"
 binaries += [(str(p), "sentencepiece") for p in SENTENCEPIECE.glob("*.pyd")]
 datas += [(str(p), "sentencepiece") for p in SENTENCEPIECE.glob("*.py")]
 
+# The app icon. Stamped on the executables below so Explorer and the taskbar
+# show it, and also shipped as a file, because Qt loads it at runtime for the
+# window and tray icons - an exe's embedded icon is not reachable from Qt.
+ICON = Path(SPECPATH) / "assets" / "subordinant.ico"
+datas += [(str(ICON), "assets")]
+
 a = Analysis(
     ["main.py"],
     pathex=[SPECPATH],
@@ -145,6 +151,7 @@ exe = EXE(
     upx=False,
     # No console window: the tray icon is the app's only chrome.
     console=False,
+    icon=str(ICON),
 )
 
 # Same app with a console attached. Without it a failure inside a bundled native
@@ -159,6 +166,7 @@ exe_debug = EXE(
     strip=False,
     upx=False,
     console=True,
+    icon=str(ICON),
 )
 
 coll = COLLECT(

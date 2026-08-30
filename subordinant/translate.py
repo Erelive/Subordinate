@@ -101,8 +101,13 @@ class Translator:
             time.perf_counter() - t0,
         )
 
-    def translate(self, text: str) -> str:
-        """Translate one utterance. Returns "" for empty or failed input."""
+    def translate(self, text: str, on_partial=None) -> str:
+        """Translate one utterance. Returns "" for empty or failed input.
+
+        on_partial is accepted and ignored. This backend produces a whole
+        line in ~46 ms, so there is nothing to stream; the argument exists so
+        both backends answer the same call. See LLMTranslator.translate.
+        """
         text = text.strip()
         if not text:
             return ""

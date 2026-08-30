@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import threading
 import time
 from collections import deque
@@ -53,6 +54,15 @@ _SENTENCE_END = ("。", "！", "？", ".", "!", "?")
 # Clause marks. Not a sentence ending, but a far better place to cut than the
 # middle of a phrase when the backstop has to fire anyway.
 _CLAUSE_END = ("、", "，", ",")
+
+# An utterance with no word in it. Whisper emits these for breaths, laughs cut
+# short and false starts: the chunk is a run of ellipses and nothing else. It
+# reaches the translator as "...", comes back as "..." or empty, and renders as
+# a caption line that says nothing while carrying a speaker label - which reads
+# as a missed translation rather than as the silence it actually was.
+_NO_CONTENT = re.compile(
+    r"^[\s.。、,，…‥・~〜ー\-—_!?！？「」『』（）()\[\]'\"]*$"
+)
 
 
 def _sentence_cut(words: list[Word]) -> int:
@@ -163,20 +173,21 @@ class CaptionPipeline:
             log.info("mt_enabled: using task=transcribe, MT does the translating")
             cfg.task = "transcribe"
 
-        # Same reasoning one level down. The GUI engines set both of these, but
-        # --mt-backend llm and tools.console arrive here without them, and
-        # neither failure announces itself: inline, a slow translator stalls the
-        # capture loop until drop_backlog() discards audio, and the preview
-        # would re-run the model every 0.35 s to show a line that rewrites
-        # itself anyway. Both are properties of the backend rather than choices,
-        # so they are settled here rather than left to the caller.
+        # Same reasoning one level down. The GUI engines set this, but
+        # --mt-backend llm and tools.console arrive here without it, and the
+        # failure does not announce itself: inline, a slow translator stalls
+        # the capture loop until drop_backlog() discards audio. It is a
+        # property of the backend rather than a choice, so it is settled here
+        # rather than left to the caller.
+        #
+        # mt_live_enabled is deliberately not touched. On this backend it does
+        # not mean the per-pass tail preview - _flush_live skips llm outright -
+        # it means stream the utterance translation as it arrives, which costs
+        # no extra requests. See _mt_worker.
         if cfg.mt_enabled and cfg.mt_backend == "llm":
             if not cfg.mt_async:
                 log.info("mt_backend=llm: translating off the ASR thread")
                 cfg.mt_async = True
-            if cfg.mt_live_enabled:
-                log.info("mt_backend=llm: live preview off, too slow per pass")
-                cfg.mt_live_enabled = False
 
         self.stats = Stats()
         self._thread: threading.Thread | None = None
@@ -467,7 +478,9 @@ class CaptionPipeline:
         self._mt_until = chunk[-1].end
 
         source = join_words(chunk)
-        if not source:
+        # _mt_until has already advanced, so returning here drops the span
+        # rather than retrying it - which is the intent for both cases.
+        if not source or _NO_CONTENT.match(source):
             return
         # Resolved on this thread rather than in the worker: the tracker belongs
         # to this thread, and prune() will have moved past this span by the time
@@ -507,12 +520,30 @@ class CaptionPipeline:
             if self._stop.is_set():
                 continue
             source, speaker = item
+            # Streamed into the live line while it arrives, so the wait shows
+            # progress instead of nothing. mt_live_enabled is read per chunk
+            # rather than once, so the toolbar box takes effect mid-utterance;
+            # streamed records whether anything was actually shown, because
+            # only then is there a preview to clear.
+            streamed = False
+
+            def on_partial(part: str) -> None:
+                nonlocal streamed
+                if self._stop.is_set() or not self.cfg.mt_live_enabled:
+                    return
+                streamed = True
+                self.on_live_translation(part)
+
             t0 = time.perf_counter()
-            english = self.translator.translate(source)
+            english = self.translator.translate(source, on_partial=on_partial)
             self.stats.mt_calls += 1
             self.stats.total_mt_sec += time.perf_counter() - t0
             if self._stop.is_set():
                 continue
+            # Clear before the committed line lands, or the preview and the
+            # finished utterance are both on screen saying the same thing.
+            if streamed:
+                self.on_live_translation("")
             self.on_translation(source, english, speaker)
 
     def _stop_mt_worker(self) -> None:
@@ -539,6 +570,11 @@ class CaptionPipeline:
         note on mt_live_enabled in config.py.
         """
         if self.translator is None or not self.cfg.mt_live_enabled:
+            return
+        if self.cfg.mt_backend == "llm":
+            # This backend previews by streaming the utterance call instead;
+            # re-translating the tail every pass is the cost that route cannot
+            # pay. See _mt_worker.
             return
 
         tail = [w for w in stream.hypothesis.committed if w.start >= self._mt_until]

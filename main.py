@@ -78,8 +78,8 @@ from PyQt6.QtWidgets import (  # noqa: E402
     QSystemTrayIcon,
 )
 
-from subordinant.asr import translate_warning  # noqa: E402
-from subordinant.overlay import CaptionOverlay, make_tray_icon  # noqa: E402
+from subordinant.asr import prompt_warning, translate_warning  # noqa: E402
+from subordinant.overlay import CaptionOverlay, app_icon  # noqa: E402
 from subordinant.pipeline import CaptionPipeline  # noqa: E402
 from subordinant.window import ENGINE_TRANSCRIBER, ENGINES, TranscriptWindow  # noqa: E402
 
@@ -265,6 +265,27 @@ def selftest(cfg: Config) -> int:
     return 0 if ok else 1
 
 
+def _set_taskbar_identity() -> None:
+    """Tell Windows this process is its own app, not the launcher's.
+
+    Without an explicit AppUserModelID a source checkout inherits python.exe's
+    identity: the taskbar button groups under Python and shows the Python
+    icon, whatever setWindowIcon says. A frozen build gets its identity from
+    the executable, so this is a no-op there.
+
+    Cosmetic, so every failure is swallowed - this must not be what stops the
+    app from starting.
+    """
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "SubOrdinant.Captions"
+        )
+    except Exception:  # noqa: BLE001 - cosmetic; never worth failing over
+        log.debug("could not set AppUserModelID", exc_info=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
     logsetup.configure(args.verbose)
@@ -274,9 +295,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.selftest:
         return selftest(cfg)
 
+    _set_taskbar_identity()
     app = QApplication(sys.argv[:1])
     # The overlay hides itself when idle; that must not end the process.
     app.setQuitOnLastWindowClosed(False)
+    icon = app_icon()
+    # Inherited by every window, so the transcript window and its dialogs do
+    # not each have to set it.
+    app.setWindowIcon(icon)
 
     window = TranscriptWindow(cfg)
     bridge = Bridge()
@@ -345,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    tray = QSystemTrayIcon(make_tray_icon())
+    tray = QSystemTrayIcon(icon)
     tray.setToolTip("SubOrdinant - starting...")
     menu = QMenu()
     pause_action = menu.addAction("Pause captions")
@@ -503,9 +529,9 @@ def main(argv: list[str] | None = None) -> int:
     pipeline.start()
     # Windows shows one balloon at a time, so these are exclusive: the greeting
     # would otherwise replace the warning a second after it appeared. Raised
-    # here rather than from the pipeline because a translate/model mismatch is
-    # knowable from the config alone, before the model load spends minutes on it.
-    mismatch = translate_warning(cfg)
+    # here rather than from the pipeline because both are knowable from the
+    # config alone, before the model load spends minutes on it.
+    mismatch = translate_warning(cfg) or prompt_warning(cfg)
     if mismatch:
         tray.showMessage(
             "SubOrdinant", mismatch, QSystemTrayIcon.MessageIcon.Warning, 10000

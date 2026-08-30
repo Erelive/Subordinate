@@ -28,7 +28,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QWidget
 
-from .config import Config
+from .config import Config, asset_path
 
 log = logging.getLogger(__name__)
 
@@ -52,8 +52,29 @@ def _parse_rgba(value: str) -> QColor:
     return color if color.isValid() else QColor(0, 0, 0, 190)
 
 
-def make_tray_icon() -> QIcon:
-    """Draw a caption-bar glyph so no image asset has to ship with the app."""
+def app_icon() -> QIcon:
+    """The app icon, for the window, the taskbar and the tray.
+
+    assets/subordinant.ico carries nine sizes so Windows can pick one per
+    context; see tools/make_icon.py, which generates it.
+
+    Falls back to drawing the glyph if the file is missing or unreadable.
+    That matters more than it looks: the tray icon is the only way to quit a
+    windowed build, and an icon-less tray entry is an invisible one.
+    """
+    path = asset_path("subordinant.ico")
+    if path.exists():
+        icon = QIcon(str(path))
+        if not icon.isNull():
+            return icon
+        log.warning("%s exists but Qt could not read it; drawing icon", path)
+    else:
+        log.warning("%s missing; drawing icon", path)
+    return _drawn_icon()
+
+
+def _drawn_icon() -> QIcon:
+    """The caption-bar glyph, drawn rather than loaded."""
     pixmap = QPixmap(64, 64)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)

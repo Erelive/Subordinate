@@ -129,12 +129,18 @@ _LLM = {
     "mt_enabled": True,
     "task": "transcribe",
     "mt_backend": "llm",
-    # Both of these are forced by cost, not preference. A few hundred ms inline
-    # would stall the capture loop until the backlog was discarded, and the
-    # preview runs every 0.35 s on a budget an LLM misses by an order of
-    # magnitude. See subordinant/llm_translate.py.
+    # mt_async is forced by cost, not preference: a few hundred ms inline would
+    # stall the capture loop until the backlog was discarded.
+    #
+    # mt_live_enabled means something different here than it does on the ct2
+    # engines. There it re-translates the unstable tail every 0.35 s pass,
+    # which is a budget an LLM misses by an order of magnitude and is why this
+    # used to be forced off. On this backend it instead streams the utterance
+    # translation token by token as it arrives - no extra requests, just the
+    # one already being made, displayed as it lands. The toolbar box toggles
+    # it live either way. See subordinant/llm_translate.py.
     "mt_async": True,
-    "mt_live_enabled": False,
+    "mt_live_enabled": True,
 }
 
 ENGINES: dict[str, dict] = {
@@ -170,6 +176,25 @@ ENGINES: dict[str, dict] = {
     # Q4_K_M rather than Q8_0 because 9.0 GB leaves room for Whisper beside it;
     # Q8_0 is 15.7 GB and would not fit a 16 GB card with anything else on it.
     # Measured fully GPU-resident at 182 ms a line - see README.
+    # 1 s and 2 s exist because the hold, not the model, is what the wait is
+    # made of: the translation itself measures ~194 ms on a 4080 SUPER, so a
+    # 5 s hold spends 96% of its latency waiting for an utterance to close.
+    # Shortening it is the only lever that moves the number much.
+    #
+    # The cost is context. A 1 s hold hands the model sentence fragments, and
+    # a ja->en specialist has no more idea than anyone else what "and then I"
+    # becomes - expect choppier English and more lines that read as debris.
+    # 2 s is the compromise worth trying first.
+    "Sugoi 14B Ultra - utterance 1 s": {
+        **_LLM,
+        "mt_max_utterance_sec": 1.0,
+        "llm_model": "hf.co/sugoitoolkit/Sugoi-14B-Ultra-GGUF:Q4_K_M",
+    },
+    "Sugoi 14B Ultra - utterance 2 s": {
+        **_LLM,
+        "mt_max_utterance_sec": 2.0,
+        "llm_model": "hf.co/sugoitoolkit/Sugoi-14B-Ultra-GGUF:Q4_K_M",
+    },
     "Sugoi 14B Ultra - utterance 3 s": {
         **_LLM,
         "mt_max_utterance_sec": 3.0,
@@ -232,6 +257,8 @@ _TRANSCRIBER_TIP = (
     "Which model turns audio into text.\n"
     "large-v3-turbo handles any language and is the safe default.\n"
     "Kotoba is Japanese-only, and both faster and more accurate on it.\n"
+    "Anime-Whisper is Kotoba retrained on anime and game voice acting:\n"
+    "better on that register, but 2.5x Kotoba at a full buffer.\n"
     "large-v3 is the strongest, but costs roughly twice the time per pass."
 )
 

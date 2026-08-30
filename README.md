@@ -60,7 +60,82 @@ decisions:
 |---|---|---|
 | **Whisper large-v3-turbo** | 210 ms, RTF 0.60 | any language; the safe default |
 | **Kotoba-Whisper v2.0** | 184 ms, RTF 0.53 | Japanese only, and *faster* than turbo |
+| **Anime-Whisper** | 407 ms at a 12 s buffer, RTF 1.16 | Japanese only; Kotoba retrained on anime and game voice acting - see the caveat below |
 | **Whisper large-v3** | ~2x turbo | strongest, and the only one that can translate |
+
+**Anime-Whisper** is worth knowing the shape of before picking it. It is
+`litagin/anime-whisper`, the same Kotoba v2.0 weights fine-tuned on ~5,300 hours
+of Japanese game and anime voice acting, and it is architecturally identical -
+32 encoder layers, 2 decoder layers, d_model 1280 - so it costs what Kotoba
+costs. On the author's held-out visual-novel set it reads 13.0% CER against
+Kotoba's 18.8% and large-v3's 16.5%.
+
+**It is not as cheap as its size suggests.** Measured on a 4080 SUPER with Sugoi
+14B resident, beam 5, median of four passes over real Japanese speech:
+
+| buffer | 2 s | 4 s | 8 s | 12 s | RTF at 12 s |
+|---|---|---|---|---|---|
+| Kotoba-Whisper v2.0 | 105 ms | 128 ms | 125 ms | 163 ms | 0.47 |
+| Anime-Whisper | 184 ms | 274 ms | 213 ms | 407 ms | **1.16** |
+
+Same weights, same shape, two and a half times the cost at a full buffer - and
+over the 0.35 s interval. The difference is output length, not model size: this
+one was trained to emit rich punctuation, ellipses and non-verbal sounds, and an
+autoregressive decoder pays per token it writes. In ordinary use it is fine,
+because utterances end and the buffer resets long before 12 s. Under a long
+unbroken stretch of speech it will run a backlog, the same way large-v3 does.
+
+Treat the CER figures as the ceiling, not the expected gain. That set is
+in-domain for it
+and out of domain for the other two, and it is clean studio voice acting - a
+live collab is unscripted, mic'd and overlapping, none of which is in the
+training data. The register matches; the acoustics do not. It has not been
+measured here on real stream audio, which `tools.console` is the way to settle.
+
+Two things it does differently from every other model in the list:
+
+- **An initial prompt makes it worse.** Its card reports hallucinations and
+  degraded transcription when prompted, which is the reverse of the effect the
+  **Names** box has everywhere else. Leave it empty on this route; the app warns
+  at load if it is not.
+- **It stutter-loops on emotive delivery** without `no_repeat_ngram_size`. Its
+  card benchmarks the model at 5, and the failure without it is a real word
+  decaying into its own tail - `ヤバい......バい......ですか` - which reads as
+  speech rather than as a bug. The `TRANSCRIBERS` entry sets it; every other
+  entry sets 0, because the plain Whisper checkpoints rarely loop at temperature
+  0 and forbidding repeats costs real text in Japanese, where short particles
+  legitimately recur inside one sentence.
+- **It usually omits the sentence-final `。`**, and that mark is what
+  `_sentence_cut()` in `pipeline.py` uses to decide an utterance is finished. It
+  falls back to clause marks and the `mt_max_utterance_sec` timeout more often
+  than the others do, which shows up as translation *pacing* rather than as an
+  error.
+
+The model is a third-party CTranslate2 conversion (`flyfront/anime-whisper-faster`),
+because no official one exists, and it needs **two** repairs before it works. Both
+are applied automatically in `Transcriber.__init__`; they are described here
+because a third-party conversion is the kind of thing that gets swapped.
+
+1. **`alignment_heads`.** It inherits Kotoba's mis-copied set - pairs naming decoder
+   layers 7-25 on a decoder that has two - so it needs the `DECODER_LAYERS` entry
+   that `repair_alignment_heads()` keys off. Without it, word timestamps are an
+   out-of-bounds read inside CTranslate2 and the process segfaults, no traceback.
+
+2. **`tokenizer.json`.** The conversion ships without one. faster-whisper then
+   falls back to `openai/whisper-tiny`'s tokenizer, and for anything descended from
+   large-v3 that is the wrong vocabulary by exactly one token: large-v3 added
+   `<|yue|>` at id 50358, so whisper-tiny's 51,865-entry vocabulary puts
+   `<|translate|>` there and **every id above it lands one position off** - the task
+   tokens, `<|notimestamps|>`, and the whole timestamp range. Ordinary text sits
+   below 50358 and still decodes, so nothing raises and nothing looks obviously
+   broken; the captions simply come out scrambled with meaningless word timings.
+   `repair_tokenizer()` supplies the right file from the model this one was
+   fine-tuned from - see `TOKENIZER_DONOR` in `config.py`. The two vocabularies
+   were compared entry-for-entry across all 51,866 tokens before that was wired up.
+
+This is worth knowing if the conversion is ever replaced: a Whisper model that
+produces confident nonsense is usually a tokenizer, and a Whisper model that kills
+the process is usually alignment heads.
 
 The **Beam** picker beside this one overrides `beam_size` for whichever model is
 selected; Auto keeps the per-model default. Raising it is worth trying on people
@@ -72,7 +147,7 @@ utterances Kotoba scored 89.84 / 89.77 / 89.79 percent at beam 5 / 10 / 20.
 |---|---|---|
 | **Sugoi v4** (utterance 2 / 3 / 5 / 8 / 10 s) | Whisper transcribes, Sugoi translates | the fast default; 46 ms a line, keeps the source text |
 | **Qwen3 4B Instruct** (utterance 3 / 5 s) | Whisper transcribes, a local LLM translates | needs Ollama; 116 ms a line, and sees the preceding lines, so names hold |
-| **Sugoi 14B Ultra** (utterance 3 / 5 s) | Whisper transcribes, a ja->en specialist LLM translates | needs Ollama and 9 GB of VRAM; the most accurate option, 182 ms a line |
+| **Sugoi 14B Ultra** (utterance 1 / 2 / 3 / 5 s) | Whisper transcribes, a ja->en specialist LLM translates | needs Ollama and 9 GB of VRAM; the most accurate option, 182 ms a line |
 | **Whisper large-v3** | one model, `task=translate` | English only, RTF 1.31 - see below; locks the transcriber to large-v3 |
 | **No translation** | transcription only | source language only |
 
@@ -152,16 +227,43 @@ so the app gains no new Python dependency and the bundle does not grow. If the
 server is down or the tag is not pulled, the engine says so at **Apply** and
 captions continue in the source language rather than the run failing.
 
-Two things are forced on these engines rather than offered, both by cost:
+**Translation runs off the ASR thread**, forced rather than offered. Half a
+second inline stalls the capture loop until `drop_backlog()` discards audio, so a
+slow translator would cost *audio* rather than latency. On the worker it costs
+neither: the caption simply lands a few hundred milliseconds later, on a line that
+was already waiting for an utterance boundary.
 
-- **The dimmed live preview is off.** It runs every pass, ~0.35 s apart, on a
-  budget of tens of milliseconds. No LLM is close. English arrives a whole
-  utterance at a time instead of moving continuously.
-- **Translation runs off the ASR thread.** Half a second inline stalls the
-  capture loop until `drop_backlog()` discards audio, so a slow translator would
-  cost *audio* rather than latency. On the worker it costs neither: the caption
-  simply lands a few hundred milliseconds later, on a line that was already
-  waiting for an utterance boundary.
+### Where the wait actually is
+
+The model is not the slow part. Measured on a 4080 SUPER, fully GPU-resident, the
+14B answers in ~194 ms. A 5 s hold therefore spends **96% of its latency waiting
+for the utterance to close**, not translating it. Two things follow.
+
+**Shorten the hold.** That is why 1 s and 2 s entries exist alongside 3 s and 5 s.
+It is the only lever that moves the number much - halving the hold halves the
+wait, where switching to the 4B saves ~100 ms of a multi-second one. The cost is
+context: a 1 s hold hands the model sentence fragments, and a ja->en specialist
+has no more idea than anyone else what *"and then I"* becomes, so expect choppier
+English. 2 s is the compromise worth trying first.
+
+**The live preview is on for these engines**, and means something different here
+than on the Sugoi v4 route. There it re-translates the unstable tail every 0.35 s
+pass, which is a budget an LLM misses by an order of magnitude. Here it streams
+the utterance translation as it arrives - the same single request, read as it
+lands rather than after it finishes, so it costs no extra calls. Measured: first
+words on screen at **~30 ms** instead of ~194 ms, same total. The toolbar box
+toggles it live on both routes.
+
+Be clear about the size of that win: it removes ~165 ms of dead time from a wait
+that is seconds long. It makes the line feel alive rather than frozen; it does not
+make the translation arrive meaningfully sooner. The hold is what does that.
+
+One implementation note, because it is a trap worth naming. The streaming reader
+must consume the response to the end rather than breaking on the `done` chunk.
+Stopping early leaves the body unread, `requests` drops the connection instead of
+returning it to the pool, and every following call then waits ~1.7 s for its first
+token - ten times slower than not streaming at all. That was measured, not
+reasoned about, and it looked exactly like "the LLM is slow".
 
 4B and 8B are both offered at the same two utterance lengths so switching
 between them is a fair comparison - changing the hold at the same time would
@@ -217,6 +319,7 @@ click-through and has no taskbar button, so the tray icon controls it.
 .venv\Scripts\python.exe -m tools.doctor           # devices + GPU + speed
 .venv\Scripts\python.exe -m tools.capture_check 6  # is loopback capturing?
 .venv\Scripts\python.exe -m tools.console 30       # captions in the terminal
+.venv\Scripts\python.exe -m tools.make_icon        # regenerate the app icon
 .venv\Scripts\python.exe main.py --model large-v3 --language ja --task translate
 ```
 
@@ -438,9 +541,30 @@ Most bad translations are not the translator's fault. Whisper renders a name it
 has never heard as whatever it sounds like, and the MT stage then translates that
 wrong word perfectly faithfully, so nothing downstream can tell anything happened.
 
-The **Names** box takes the words a stream will use - `ラミィ, ノエル, スバル,
-ホロライブ` - and biases the decoder before it guesses. Measured on English TTS
-with the same failure, the transcript went from
+There is a second failure that looks identical on screen and is not the same
+thing at all: the transcriber hears the kanji perfectly and the *translator*
+picks the wrong reading for it. 天音 is `Amane`, but it has other plausible
+readings, so Sugoi guesses - and guesses consistently, which makes it look like
+a fact rather than a coin toss:
+
+```
+bare       ...Tenki-kun respects me
+glossary   ...Amane-kun respects me
+```
+
+So the **Names** box feeds both stages. It biases the decoder before it guesses,
+and it is appended to the translator's system prompt as a glossary. Write a
+reading where the reading is what matters - `天音 = Amane` - and plain terms
+otherwise; both halves read the same box.
+
+On a model listed in `_PROMPT_HOSTILE` - Anime-Whisper is the only one so far -
+the box is deliberately **not** sent to the decoder, because a prompt measurably
+degrades it. It still reaches the translator, which is where a name's reading is
+decided anyway, so the box stays useful on that route rather than having to be
+left empty.
+
+For the decoder half, measured on English TTS with the same failure, the
+transcript went from
 
 ```
 bare     Lamy and Noelle are talking to Sabaru about the Kolob.
@@ -547,6 +671,33 @@ pinning the system runtime before Qt loads; the analysis subprocess cannot.
 `sherpa_onnx` was checked for the same problem and does not have it, so it is a
 plain hidden import.
 
+### The icon
+
+`assets\subordinant.ico` is the window, taskbar and tray icon: the caption
+plate the app draws on screen, with the lower bar in the accent colour, because
+that is what the overlay does with text that has not settled yet.
+
+It is generated, not drawn by hand:
+
+```
+.venv\Scripts\python.exe -m tools.make_icon
+```
+
+`tools\make_icon.py` is committed beside the `.ico` so the mark can be retuned
+without editing a binary. It writes nine sizes, each drawn from geometry rather
+than downsampled from one large bitmap. That is the whole reason the script
+exists: Windows picks a size per context - 16 px in the taskbar, 256 px in
+Explorer's jumbo view - and a 256 px plate resampled to 16 turns to mush, while
+bars specified as a fraction of the canvas land thinner than a pixel and
+disappear. Below 32 px the speech tail is dropped and the plate grows into the
+space, because at that size the tail is a two-pixel stub that reads as dirt.
+
+The spec stamps the `.ico` on both executables *and* ships it as a file. Both
+are needed: the embedded copy is what Explorer and the taskbar show, and Qt
+cannot reach that one, so `overlay.app_icon()` loads the file for the window and
+tray. If the file is missing it falls back to drawing the glyph - worth having,
+since the tray icon is the only way to quit a windowed build.
+
 ### Checking a packaged build
 
 ```
@@ -581,6 +732,16 @@ The settings worth touching:
   Translate-with picker offers 2/3/5/8 s, and on live speech it is the main
   control over whether lines read as sentences or as fragments
 - `mt_repetition_penalty`, `mt_no_repeat_ngram_size` - stop NMT repeat loops
+- `no_repeat_ngram_size` - the *ASR* equivalent, set per model in `TRANSCRIBERS`
+  rather than here; 5 for Anime-Whisper, 0 for everything else
+- `llm_context_utterances` - how many previous utterances the LLM is shown. It
+  cuts both ways, and it is worth knowing which way. Prior turns keep names and
+  dropped subjects consistent across lines; they also bias. Measured on one line,
+  `頰にキスをしましたが...よろしいでしょうか？` came back as *"I kissed her cheek... is
+  that okay?"* at 0 and as *"May I kiss your cheek?"* at 3 - the romantic context
+  of the preceding lines overriding a past tense that was plainly in the source.
+  If translations drift toward what the conversation was about rather than what
+  the line says, this is the knob
 - `diarize_enabled` - label lines with who said it (`--speakers`)
 - `diarize_max_speakers` - how many people are talking; the most useful setting
 - `diarize_window_sec` - speech per embedding; short windows over-split

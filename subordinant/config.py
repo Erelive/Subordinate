@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 from dataclasses import dataclass, fields
 from pathlib import Path
 
@@ -31,6 +32,7 @@ TRANSCRIBERS: dict[str, dict] = {
     "Whisper large-v3-turbo": {
         "model": "large-v3-turbo",
         "beam_size": 5,
+        "no_repeat_ngram_size": 0,
     },
     # Distil-Whisper fine-tuned on Japanese by Kotoba Technologies. Four decoder
     # layers' worth of Whisper large has been cut to two, so it is *faster* than
@@ -67,6 +69,66 @@ TRANSCRIBERS: dict[str, dict] = {
         # loss on *overlapping* speech from 39% to 15%; that is not tested here,
         # so whether 10 beats 5 on a real collab is unmeasured either way.
         "beam_size": 5,
+        "no_repeat_ngram_size": 0,
+    },
+    # litagin/anime-whisper, fine-tuned from the same Kotoba v2.0 weights as
+    # the entry above on ~5,300 hours of Japanese game and anime voice acting.
+    # Identical shape: 32 encoder layers, 2 decoder layers, d_model 1280.
+    #
+    # The same shape does NOT mean the same cost, which is what this entry
+    # first claimed. Measured on a 4080 SUPER with Sugoi 14B resident, beam 5,
+    # median of four passes over real Japanese speech, by buffer length:
+    #
+    #                  2 s     4 s     8 s    12 s     RTF at 12 s
+    #     Kotoba      105ms   128ms   125ms   163ms       0.47
+    #     Anime       184ms   274ms   213ms   407ms       1.16
+    #
+    # Two and a half times Kotoba at a full buffer, and over the 0.35 s
+    # interval. The weights are the same size; the output is not. This model
+    # was trained to emit rich punctuation, ellipses and non-verbal sounds,
+    # and an autoregressive decoder pays per token it writes.
+    #
+    # What that means in practice: a buffer that reaches max_buffer_sec under
+    # sustained speech runs a backlog, the same failure large-v3 has. It is
+    # fine in ordinary use because utterances end and the buffer resets long
+    # before 12 s. If captions start dropping words during a long unbroken
+    # stretch, this is why - raise process_interval_sec or switch to Kotoba.
+    #
+    # On the author's held-out visual-novel set it reads 13.0% CER against
+    # Kotoba v2.0's 18.8% and large-v3's 16.5%. That set is in-domain for it
+    # and out of domain for the other two, so it is the ceiling rather than
+    # the expected gain: a live collab is unscripted, mic'd and overlapping,
+    # and none of that is in 5,300 hours of studio voice acting.
+    #
+    # A third-party CTranslate2 conversion, because there is no official one.
+    # It inherits the same mis-copied alignment_heads Kotoba ships - pairs
+    # naming decoder layers 7-25 on a decoder that has two - which is why it
+    # needs the DECODER_LAYERS entry below. Without it, word timestamps are an
+    # out-of-bounds read inside CTranslate2 and the process segfaults. Checked
+    # by reading the conversion's config.json, not assumed from the base model.
+    #
+    # Two ways it behaves unlike every other model here, both from its card:
+    #
+    #   - An initial prompt *degrades* it - hallucinations and worse text -
+    #     where everywhere else a name in the prompt is what stops the decoder
+    #     guessing. The Names box wants to be empty on this route; see
+    #     prompt_warning() in asr.py, which says so at load.
+    #
+    #   - It usually omits the sentence-final 。, and _sentence_cut() in
+    #     pipeline.py cuts utterances on exactly that. Expect it to lean on the
+    #     clause marks and the mt_max_utterance_sec timeout more than the
+    #     others do, which shows up as translation pacing rather than as an
+    #     error.
+    "Anime-Whisper (Japanese)": {
+        "model": "flyfront/anime-whisper-faster",
+        # Not measured here. Kotoba is the closest guide - same shape, same
+        # size, same cost per pass - and beam 5 is where that entry landed.
+        "beam_size": 5,
+        # The one model here that needs it; see the field in Config. Its card
+        # benchmarks at 5, and without it emotive delivery decays into stutter
+        # loops that reach the captions as real-looking text. Measured free:
+        # 407 ms with it against 413 ms without, at a 12 s buffer.
+        "no_repeat_ngram_size": 5,
     },
     "Whisper large-v3": {
         "model": "large-v3",
@@ -90,6 +152,7 @@ TRANSCRIBERS: dict[str, dict] = {
         # stronger model and gains least from it, so this is the cheapest place
         # to give it up.
         "beam_size": 1,
+        "no_repeat_ngram_size": 0,
     },
 }
 
@@ -98,6 +161,7 @@ TRANSCRIBERS: dict[str, dict] = {
 # failure is silent bad transcription - hence the warning in asr.py.
 MONOLINGUAL: dict[str, str] = {
     "kotoba-tech/kotoba-whisper-v2.0-faster": "ja",
+    "flyfront/anime-whisper-faster": "ja",
 }
 
 # Distil-Whisper models keep the full 32-layer encoder but cut the decoder to
@@ -110,12 +174,47 @@ MONOLINGUAL: dict[str, str] = {
 # see repair_alignment_heads() in asr.py.
 DECODER_LAYERS: dict[str, int] = {
     "kotoba-tech/kotoba-whisper-v2.0-faster": 2,
+    # Fine-tuned from the above, and the conversion carries that config over
+    # unchanged - same two decoder layers, same heads naming layers 7-25.
+    "flyfront/anime-whisper-faster": 2,
+}
+
+# CTranslate2 conversions published without a tokenizer.json, mapped to the
+# model whose tokenizer is the correct one for them.
+#
+# faster-whisper falls back to openai/whisper-tiny's tokenizer when a model
+# directory has none. For anything descended from large-v3 that is the wrong
+# vocabulary by exactly one token: large-v3 added <|yue|> at id 50358, so
+# whisper-tiny's 51865-entry vocabulary puts <|translate|> there instead and
+# every id above it lands one position off - the task tokens, <|notimestamps|>
+# and the entire timestamp range.
+#
+# Ordinary text sits below 50358 and survives, which is why the failure reads
+# as scrambled captions with meaningless word timings rather than as obvious
+# noise, and why it is worth repairing rather than detecting downstream.
+#
+# The donor is the model the broken one was fine-tuned from - fine-tuning does
+# not change the vocabulary. Verified before wiring: the two models'
+# vocabulary.json files match entry-for-entry across all 51,866 tokens.
+TOKENIZER_DONOR: dict[str, str] = {
+    "flyfront/anime-whisper-faster": "kotoba-tech/kotoba-whisper-v2.0-faster",
 }
 
 
 def config_dir() -> Path:
     base = os.environ.get("APPDATA") or str(Path.home())
     return Path(base) / "SubOrdinant"
+
+
+def asset_path(name: str) -> Path:
+    """Locate a file shipped in assets/, from a checkout or a frozen build.
+
+    The spec unpacks assets/ to the bundle root, so the path relative to it is
+    the same one the checkout uses - only the root differs.
+    """
+    frozen = getattr(sys, "_MEIPASS", None)
+    root = Path(frozen) if frozen else Path(__file__).resolve().parent.parent
+    return root / "assets" / name
 
 
 @dataclass
@@ -145,6 +244,22 @@ class Config:
     # 0.35 s process_interval_sec; 0.62 still leaves headroom, so the cost is
     # latency that was never the binding constraint.
     beam_size: int = 5
+    # Blocks the decoder from re-emitting an n-gram it has already produced.
+    # 0 is off, which is right for the plain Whisper checkpoints: they rarely
+    # loop at temperature 0, and forbidding repeats costs real text in
+    # Japanese, where short particles legitimately recur inside one sentence.
+    #
+    # Anime-Whisper needs it. Trained on emotive speech full of drawn-out and
+    # stuttered delivery, it degenerates into stutter loops on exactly that
+    # material - the failure looks like ヤバい......バい......ですか, a real
+    # word decaying into its own tail. Its card benchmarks the model at 5,
+    # which is where the entry in TRANSCRIBERS puts it.
+    #
+    # Set by every TRANSCRIBERS entry rather than left to this default: the
+    # GUI applies an entry's keys with setattr and resets nothing, so a value
+    # only some entries carry would survive a switch to a model that does not
+    # want it.
+    no_repeat_ngram_size: int = 0
     # Text shown to Whisper before each pass, to bias it towards words it would
     # otherwise mishear. Proper nouns are the case that matters: a name it has
     # never seen comes out as whatever it sounds like, and the translation stage
