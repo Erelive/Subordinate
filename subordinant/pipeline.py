@@ -1,221 +1,350 @@
-"""Wiring: capture thread -> energy gate -> streaming ASR -> caption callback.
+"""Wiring: capture -> speech gate -> streaming recogniser -> segmenter -> translators.
 
-Runs on one worker thread. Inference blocks that thread, which is fine: audio
-keeps arriving in the capture queue meanwhile, and the queue depth is exactly the
-signal used to detect that the GPU has fallen behind real time.
+Three threads, each doing the one thing that would otherwise block another:
+
+  engine    reads captured audio, runs the voice detector and the recogniser,
+            decides where sentences end. Never translates.
+  final     turns each finished sentence into its permanent English line.
+            May take hundreds of milliseconds per line (an LLM); the engine
+            does not wait for it.
+  preview   keeps a provisional English line for the sentence still being
+            spoken. Latest request wins: a preview nobody will see is never
+            computed.
+
+The capture device has two more of its own (see audio.py), and the GUI its
+own. Nothing here touches Qt; everything the outside world learns arrives
+through PipelineEvents, called from whichever thread has the news.
+
+What changed from the single-threaded loop this replaces, and why:
+
+  The loop read exactly one capture block per iteration and ran a pass every
+  0.35 s of audio. When a pass took longer than that, the unread audio piled
+  up in the capture queue where nothing measured it; the "drop the backlog"
+  check compared a counter that was reset every pass against 6 s and so could
+  never fire. Measured on the benchmark's music-and-pauses sample, the result
+  was captions 11-22 s behind with zero reported drops. The loop now takes
+  everything that has arrived before each pass, so a slow pass makes the next
+  one cover more audio rather than queue behind it.
+
+  Utterances ended when the output went quiet. They now end when the speaker
+  does (vad.py), and sentences inside running speech are cut at breaths the
+  grammar agrees with (segment.py) instead of at a three-second timer.
+
+  Translation ran on the recognition thread for the NMT route. It never does
+  now, so a preview cannot delay a pass.
+
+How an utterance ends, since most of both the accuracy and the delay is here:
+
+  The line that is kept is read once, whole. Words settle one at a time while
+  someone is talking, each on the strength of the half second that followed
+  it, and that is what the live caption shows. When the speaker stops, the
+  last pass has heard the entire utterance with silence after it; its reading
+  replaces the piecemeal one before anything is translated (see
+  HypothesisBuffer.settle_all in streaming.py).
+
+  A pause is not an ending until the text agrees. If what was said stops on a
+  particle, or is three characters long, the audio is kept and the recogniser
+  goes on listening to the same buffer (a deferred close). Cutting there and
+  starting fresh made the second half of 何さん、だっけ come back as さんだ
+  and っけけ: half a word is not something a recogniser can hear.
+
+  And an ending is not held up once the text is sure of it. A sentence that
+  reads as finished is closed a quarter of a second into the pause rather
+  than after the full endpoint (the eager endpoint), and the pass that
+  already heard it is not run again just because silence was added.
 """
 
 from __future__ import annotations
 
 import logging
 import queue
-import re
 import threading
 import time
-from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Callable
 
 import numpy as np
 
-from .asr import Transcriber, Word
-from .audio import LoopbackCapture
+from .asr import _HALLUCINATIONS, ModelLoadError, Word, _is_oom, is_cached
+from .audio import AudioDeviceError, LoopbackCapture
 from .config import SAMPLE_RATE, Config
 from .diarize import UNKNOWN, DiarizationUnavailable, SpeakerTracker
-from .streaming import StreamingTranscriber, join_words
-from .translate import TranslationUnavailable, build_translator
-from .vad import EnergyGate
+from .metrics import Metrics
+from .models import ModelCache
+from .profiles import short_model_name
+from .segment import (
+    _letter_count,
+    has_content,
+    is_fragment,
+    join_words,
+    looks_complete,
+    looks_incomplete,
+    nearest_boundary,
+    overdue_cut,
+    pause_boundaries,
+    pause_cut,
+    sentence_cut,
+)
+from .streaming import StreamingTranscriber
+from .translate import TranslationUnavailable
+from .vad import AUDIO, CLOSE, PAUSE, SpeechGate
 
 log = logging.getLogger(__name__)
 
-CaptionCallback = Callable[[str, str], None]
-StatusCallback = Callable[[str], None]
-# (text, speaker id). The speaker is diarize.UNKNOWN when labelling is off or
-# the span could not be attributed; it is an int rather than an optional so it
-# can cross a Qt signal unchanged.
-CommitCallback = Callable[[str, int], None]
-# (source text, english, speaker id) for one finished utterance. Fires only with
-# mt_enabled.
-TranslationCallback = Callable[[str, str, int], None]
-# English for the tail that has not settled yet. Rewrites itself freely, so it
-# belongs beside the unconfirmed source text, never in the transcript.
-LiveTranslationCallback = Callable[[str], None]
+# Pipeline states. The GUI shows exactly one of these at a time, with `detail`
+# as the sentence under it.
+IDLE = "idle"
+LOADING = "loading"
+LISTENING = "listening"  # running, nobody speaking
+RECOGNIZING = "recognizing"  # speech in progress
+TRANSLATING = "translating"  # speech over, a final line still in flight
+PAUSED = "paused"
+ERROR = "error"
 
-# Audio kept before the gate opens, so the attack of the first word isn't lost.
-PREROLL_SEC = 0.35
+# After this many passes fail in a row the run is stopped rather than retried.
+_MAX_PASS_FAILURES = 3
 
-# What Whisper puts at the end of a sentence. The Japanese forms matter most
-# here; the ASCII ones cover source languages that use them, and "..." is
-# deliberately absent - it marks hesitation mid-sentence far more often than an
-# ending, and cutting there would hand MT a fragment.
-_SENTENCE_END = ("。", "！", "？", ".", "!", "?")
+# A pass counts as having heard the end of the speech only if it ran with at
+# least this much quiet after the last voiced frame. Less, and the recogniser
+# was looking at a word that might still have been going.
+_HEARD_QUIET_SEC = 0.09
 
+# If this much speech has gone by since a pause and the recogniser's reading
+# still stops at that pause, it is not going to read on by itself: it has
+# taken what came before the pause for the whole utterance. See
+# StreamingTranscriber.split for what is done about it and why.
+_STALL_SEC = 1.0
 
-# Clause marks. Not a sentence ending, but a far better place to cut than the
-# middle of a phrase when the backstop has to fire anyway.
-_CLAUSE_END = ("、", "，", ",")
+# The same, when there is no pause to point at: the reading ends this far
+# short of the audio. Longer than the above because a reading normally trails
+# the newest sample by a few tenths of a second, and by the length of any
+# quiet at the end of the buffer.
+_STALL_NO_PAUSE_SEC = 1.5
 
-# An utterance with no word in it. Whisper emits these for breaths, laughs cut
-# short and false starts: the chunk is a run of ellipses and nothing else. It
-# reaches the translator as "...", comes back as "..." or empty, and renders as
-# a caption line that says nothing while carrying a speaker label - which reads
-# as a missed translation rather than as the silence it actually was.
-_NO_CONTENT = re.compile(
-    r"^[\s.。、,，…‥・~〜ー\-—_!?！？「」『』（）()\[\]'\"]*$"
-)
+# Quiet kept at the head of the buffer when it is cut at a pause, so the first
+# word after the pause has its soft start and a moment of silence before it.
+_LEAD_IN_SEC = 0.3
 
-
-def _sentence_cut(words: list[Word]) -> int:
-    """How many leading words form whole sentences. 0 if none do."""
-    for i in range(len(words) - 1, -1, -1):
-        text = words[i].text.strip()
-        if text.endswith(_SENTENCE_END) and not text.endswith("..."):
-            return i + 1
-    return 0
-
-
-def _clause_cut(words: list[Word]) -> int:
-    """How many leading words end on a clause mark. 0 if none do.
-
-    Used only when the backstop fires: translating a whole clause beats
-    translating a phrase severed mid-thought, which is what produced run-ons
-    like "はいよろしくお願いしますノエルのブームでしゃべります...".
-    """
-    for i in range(len(words) - 1, -1, -1):
-        if words[i].text.strip().endswith(_CLAUSE_END):
-            return i + 1
-    return 0
+# A word the recogniser places this long after the voice detector heard the
+# speaker stop was not spoken. Whisper fills silence at the end of a buffer
+# with what usually follows speech in its training data - バイバイ,
+# ありがとうございました - and at the end of an utterance there is no later
+# pass to disagree with it. The margin covers the detector releasing a little
+# before a trailing vowel has died away, and word timings being good to about
+# a tenth of a second.
+_TAIL_SLACK_SEC = 0.2
 
 
 @dataclass
-class Stats:
-    passes: int = 0
-    total_infer_sec: float = 0.0
-    total_audio_sec: float = 0.0
-    drops: int = 0
-    commits: int = 0
-    total_lag_sec: float = 0.0
-    max_lag_sec: float = 0.0
-    mt_calls: int = 0
-    total_mt_sec: float = 0.0
-    live_mt_calls: int = 0
-    total_live_mt_sec: float = 0.0
-    total_diarize_sec: float = 0.0
+class Utterance:
+    """One translation unit: what was said, and what it means.
 
-    @property
-    def mean_mt_ms(self) -> float:
-        return 1000.0 * self.total_mt_sec / self.mt_calls if self.mt_calls else 0.0
+    Emitted more than once with the same id when a draft precedes the final
+    line. `final` is False for the draft and for partial updates to it, True
+    exactly once, and nothing with that id is sent after that.
+    """
 
-    @property
-    def mean_live_mt_ms(self) -> float:
-        return (
-            1000.0 * self.total_live_mt_sec / self.live_mt_calls
-            if self.live_mt_calls
-            else 0.0
-        )
+    id: int
+    source: str
+    english: str = ""
+    speaker: int = UNKNOWN
+    start: float = 0.0  # stream clock, seconds
+    end: float = 0.0
+    wall_time: float = 0.0  # time.time() at which the last word was spoken
+    final: bool = True
+    # Which translator wrote `english`: "llm", "nmt", "whisper", or "".
+    engine: str = ""
+    # Seconds from the last word being spoken to this line becoming final.
+    latency: float | None = None
 
-    @property
-    def diarize_rtf(self) -> float:
-        """Speaker labelling cost as a share of the real-time budget."""
-        return (
-            self.total_diarize_sec / self.total_audio_sec if self.total_audio_sec else 0.0
-        )
 
-    @property
-    def rtf(self) -> float:
-        """Inference seconds per second of audio processed. Under 1.0 keeps up."""
-        return self.total_infer_sec / self.total_audio_sec if self.total_audio_sec else 0.0
+class PipelineEvents:
+    """What the pipeline reports. Subclass and override what is needed.
 
-    @property
-    def mean_pass_ms(self) -> float:
-        return 1000.0 * self.total_infer_sec / self.passes if self.passes else 0.0
+    Every method is called from a worker thread. An implementation that
+    touches a GUI must marshal to its own thread; the app does that with
+    queued Qt signals.
+    """
 
-    @property
-    def mean_lag_sec(self) -> float:
-        """How far behind the audio a word is when it finally settles on screen."""
-        return self.total_lag_sec / self.commits if self.commits else 0.0
+    def on_state(self, state: str, detail: str) -> None:
+        """The pipeline moved to `state`. `detail` is a sentence for the user."""
+
+    def on_notice(self, level: str, message: str) -> None:
+        """Something the user should know. level is "info", "warning" or "error"."""
+
+    def on_caption(self, committed: str, unstable: str) -> None:
+        """The Japanese of the sentence in progress: settled part, then guess.
+
+        The settled part usually only grows, but it is not final until the
+        sentence is: a later pass that has heard more may correct it."""
+
+    def on_commit(self, text: str, speaker: int, start: float, end: float) -> None:
+        """Source text that just became final: it has been cut into a line
+        and handed on. Never re-sent, never revised."""
+
+    def on_preview(self, english: str, source: str) -> None:
+        """Provisional English for the sentence in progress. "" clears it."""
+
+    def on_utterance(self, utterance: Utterance) -> None:
+        """A translation unit: draft (final=False) or finished (final=True)."""
+
+    def on_metrics(self, snapshot: dict) -> None:
+        """Performance counters, about once a second."""
+
+
+@dataclass
+class _Job:
+    utterance: Utterance
+    spoken_at: float  # perf_counter time the last word ended
+    preview_gen: int
+    words: list = field(default_factory=list)
 
 
 class CaptionPipeline:
     def __init__(
         self,
         cfg: Config,
-        on_caption: CaptionCallback,
-        on_status: StatusCallback | None = None,
-        transcriber: Transcriber | None = None,
-        on_commit: CommitCallback | None = None,
-        on_translation: TranslationCallback | None = None,
-        on_live_translation: LiveTranslationCallback | None = None,
+        events: PipelineEvents | None = None,
+        source=None,
+        models: ModelCache | None = None,
+        wrap_translator: Callable | None = None,
     ):
-        self.cfg = cfg
-        self.on_caption = on_caption
-        self.on_status = on_status or (lambda _msg: None)
-        # Fires once per word that becomes final, never re-sent. on_caption by
-        # contrast re-sends a rolling window, so it cannot build a transcript.
-        self.on_commit = on_commit or (lambda _text, _spk: None)
-        # Fires once per finished utterance, after translation.
-        self.on_translation = on_translation or (lambda _src, _en, _spk: None)
-        self.on_live_translation = on_live_translation or (lambda _en: None)
-        self.transcriber = transcriber
-        self.translator = None
-        self.tracker: SpeakerTracker | None = None
-        # Stream time up to which source text has been handed to MT.
-        self._mt_until = 0.0
-        # Source text the live preview was last built from, so an unchanged tail
-        # costs nothing instead of being re-translated every pass.
-        self._live_source = ""
+        # A private copy. The GUI edits its own Config freely; nothing it does
+        # reaches a running pass except through the setters below.
+        self.cfg = cfg.copy()
+        self.events = events or PipelineEvents()
+        # Anything with LoopbackCapture's surface. The benchmark passes a file
+        # player here; the app passes nothing and gets the real device.
+        self._source = source
+        self.models = models or ModelCache()
+        self._owns_models = models is None
+        self._wrap = wrap_translator or (lambda translator: translator)
 
-        # With MT running, Whisper's job is to produce source-language text -
-        # asking it to translate as well would hand the NMT model English and
-        # throw away the source column. Enforced here rather than in Config
-        # because this is the one path both the GUI and tools.console take.
+        cfg = self.cfg
+        # With a translator running, Whisper's job is to produce Japanese -
+        # asking it to translate as well would hand the translator English
+        # and throw the source text away.
         if cfg.mt_enabled and cfg.task == "translate":
-            log.info("mt_enabled: using task=transcribe, MT does the translating")
+            log.info("mt_enabled: using task=transcribe, the translator translates")
             cfg.task = "transcribe"
+        self._direct = cfg.task == "translate"
 
-        # Same reasoning one level down. The GUI engines set this, but
-        # --mt-backend llm and tools.console arrive here without it, and the
-        # failure does not announce itself: inline, a slow translator stalls
-        # the capture loop until drop_backlog() discards audio. It is a
-        # property of the backend rather than a choice, so it is settled here
-        # rather than left to the caller.
-        #
-        # mt_live_enabled is deliberately not touched. On this backend it does
-        # not mean the per-pass tail preview - _flush_live skips llm outright -
-        # it means stream the utterance translation as it arrives, which costs
-        # no extra requests. See _mt_worker.
-        if cfg.mt_enabled and cfg.mt_backend == "llm":
-            if not cfg.mt_async:
-                log.info("mt_backend=llm: translating off the ASR thread")
-                cfg.mt_async = True
+        self.metrics = Metrics()
+        self.stats = self.metrics  # the name the tools knew it by
+        self.transcriber = None
+        self.tracker: SpeakerTracker | None = None
+        self._final_tr = None
+        self._preview_tr = None
+        self._nmt = None
 
-        self.stats = Stats()
+        self.state = IDLE
+        self._detail = ""
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._paused = threading.Event()
-        # Set only with cfg.mt_async. Unbounded on purpose: the producer is one
-        # utterance every few seconds and the consumer is a few hundred
-        # milliseconds, so the queue holds 0 or 1 in steady state, and a bound
-        # would mean choosing between blocking the ASR thread - the exact thing
-        # this exists to avoid - and dropping a caption. A wedged server is
-        # handled by llm_timeout_sec instead, which bounds the drain rate.
-        self._mt_queue: queue.Queue[tuple[str, int] | None] | None = None
-        self._mt_thread: threading.Thread | None = None
+        self._live = cfg.mt_live_enabled
+
+        # The recogniser's stream for the run in progress. It owns the words:
+        # see _open.
+        self._stream: StreamingTranscriber | None = None
+        self._holding = False
+        # Silence required before the utterance that has stopped is treated
+        # as finished, or None when nothing is waiting. See _close_utterance.
+        self._deferred_hold: float | None = None
+        # gate.voiced_total as of the last successful pass over the current
+        # buffer, and how much quiet that pass had at its end. None when no
+        # pass has looked at this buffer.
+        self._pass_voiced: int | None = None
+        self._pass_quiet = 0.0
+        # Content characters handed to the translator so far this run, and,
+        # for each pause the recogniser has looked at from inside, how many
+        # had been recognised by then - keyed by when the pause began. That
+        # is where the pause falls in the text, known without trusting a
+        # word timestamp. See segment.pause_boundaries.
+        self._sent_letters = 0
+        self._pause_marks: dict[float, int] = {}
+        # Set when the buffer was cut inside a pause that is still going on:
+        # gate.voiced_total as it was then. Until it moves, the buffer holds
+        # nothing but that pause, and a recogniser shown only silence makes
+        # something up.
+        self._quiet_base: int | None = None
+        # Start of the pause the last pass's reading stopped at, if speech
+        # has gone on well past it. See _unstall.
+        self._stalled_at: float | None = None
+        self._next_id = 1
+        self._gate: SpeechGate | None = None
+        # perf_counter time corresponding to stream time 0, for the utterance
+        # in progress. wall(t) = _clock + t.
+        self._clock = time.perf_counter()
+        self._caption = ("", "")
+
+        self._final_q: queue.Queue[_Job | None] = queue.Queue()
+        self._final_thread: threading.Thread | None = None
+        self._final_busy = False
+        self._llm_failures = 0
+        self._llm_replaced = False
+        self._fallback_announced = False
+
+        self._preview_cond = threading.Condition()
+        self._preview_req: tuple[int, str, float] | None = None
+        self._preview_thread: threading.Thread | None = None
+        self._preview_source = ""
+        self._preview_shown = ""
+        # Bumped at every cut. A preview computed for text that has since
+        # been cut is for a sentence that is no longer in progress.
+        self._epoch = 0
+        # Bumped every time a preview reaches the screen.
+        self._preview_gen = 0
+        self._preview_fresh = True
+        self._preview_at = 0.0
+        # Normalised text of the last unit sent for translation, to recognise
+        # a boundary echo of it; see _emit_unit.
+        self._last_unit = ""
+        self._pass_failures = 0
+        self._last_metrics = 0.0
+        self._context_reset_done = True
+
+    @property
+    def _open(self) -> list[Word]:
+        """Settled words not yet handed to the translator, oldest first.
+
+        A copy of what the stream holds. They can still change - a later
+        pass may revise them - until _flush takes them, after which they are
+        a line in the transcript and never change again.
+        """
+        stream = self._stream
+        return stream.pending if stream is not None else []
 
     # -- lifecycle ---------------------------------------------------------
 
     def start(self) -> None:
-        if self._thread is not None:
+        if self._thread is not None and self._thread.is_alive():
             return
         self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="caption-pipeline", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name="caption-engine", daemon=True
+        )
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self, wait: float = 5.0) -> None:
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=5.0)
-            self._thread = None
+        with self._preview_cond:
+            self._preview_cond.notify_all()
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            if wait > 0:
+                thread.join(timeout=wait)
+            if thread.is_alive():
+                # Still winding down, and still holding the models. Keep the
+                # handle so `running` stays true until it has really gone:
+                # the caller uses that to decide when the models may be
+                # released or handed to the next run.
+                return
+        self._thread = None
+
+    @property
+    def running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
 
     def set_paused(self, paused: bool) -> None:
         if paused:
@@ -227,155 +356,454 @@ class CaptionPipeline:
     def paused(self) -> bool:
         return self._paused.is_set()
 
-    # -- worker ------------------------------------------------------------
+    def set_live_preview(self, enabled: bool) -> None:
+        """Turn the provisional English on or off without restarting."""
+        self._live = enabled
+        self.cfg.mt_live_enabled = enabled
+        if not enabled:
+            self._preview_source = ""
+            self._emit_preview("", "")
+
+    # -- reporting ---------------------------------------------------------
+
+    def _emit(self, name: str, *args) -> None:
+        """Call one PipelineEvents method. A listener that raises must not
+        take the engine down with it."""
+        try:
+            getattr(self.events, name)(*args)
+        except Exception:  # noqa: BLE001
+            log.exception("%s handler failed", name)
+
+    def _set_state(self, state: str, detail: str = "") -> None:
+        if state == self.state and detail == self._detail:
+            return
+        self.state, self._detail = state, detail
+        log.info("state: %s%s", state, f" - {detail}" if detail else "")
+        self._emit("on_state", state, detail)
+
+    def _notice(self, level: str, message: str) -> None:
+        getattr(log, "warning" if level != "info" else "info")("%s", message)
+        self._emit("on_notice", level, message)
+
+    def _fail(self, message: str) -> None:
+        self._set_state(ERROR, message)
+
+    # -- startup -----------------------------------------------------------
 
     def _run(self) -> None:
+        source = None
+        failed = False
         try:
-            if self.transcriber is None:
-                self.on_status("loading model...")
-                self.transcriber = Transcriber(self.cfg)
-                self.transcriber.warmup()
-
-            if self.cfg.mt_enabled and self.translator is None:
-                self.on_status("loading translation model...")
+            self._load()
+            if self._stop.is_set():
+                return
+            source = self._open_source()
+            if source is None:
+                return
+            self._start_workers()
+            self._loop(source)
+        except (ModelLoadError, TranslationUnavailable) as exc:
+            failed = True
+            self._fail(str(exc))
+        except Exception as exc:  # noqa: BLE001 - surface any failure to the UI
+            failed = True
+            log.exception("pipeline failed")
+            self._fail(self._explain(exc))
+        finally:
+            if source is not None and self._source is None:
                 try:
-                    self.translator = build_translator(self.cfg)
-                except TranslationUnavailable as exc:
-                    # Captions in the source language are still useful, so this
-                    # degrades rather than aborting the run.
-                    log.warning("translation disabled: %s", exc)
-                    self.on_status(f"translation unavailable: {exc}")
+                    source.stop()
+                except Exception:  # noqa: BLE001
+                    log.debug("error stopping capture", exc_info=True)
+            self._stop_workers()
+            self._summary()
+            if not failed:
+                self._set_state(IDLE, "")
 
-            if self.cfg.diarize_enabled and self.tracker is None:
-                self.on_status("loading speaker model...")
-                try:
-                    self.tracker = SpeakerTracker(self.cfg)
-                except DiarizationUnavailable as exc:
-                    # Unlabelled captions are still captions, so this degrades
-                    # rather than aborting the run.
-                    log.warning("speaker labelling disabled: %s", exc)
-                    self.on_status(f"speaker labelling unavailable: {exc}")
+    @staticmethod
+    def _explain(exc: BaseException) -> str:
+        """An exception as a sentence someone can act on."""
+        if _is_oom(exc):
+            return (
+                "The GPU ran out of memory. Close other GPU-heavy apps, turn on "
+                "VRAM saver in Settings, or pick the Fast profile."
+            )
+        return f"Something went wrong: {type(exc).__name__}: {exc}"
 
-            # Only once the translator is known to have loaded: with no
-            # translator there is nothing to feed the worker, and the inline
-            # path below is what the ct2 numbers were measured on.
-            if self.translator is not None and self.cfg.mt_async:
-                self._mt_queue = queue.Queue()
-                self._mt_thread = threading.Thread(
-                    target=self._mt_worker, name="caption-mt", daemon=True
-                )
-                self._mt_thread.start()
+    def _load(self) -> None:
+        cfg = self.cfg
+        if cfg.vad_mode != "silero":
+            # Nothing upstream is rejecting music, so Whisper's own pass has to.
+            cfg.vad_filter = True
 
-            capture = LoopbackCapture(frames_per_buffer=self.cfg.frames_per_buffer)
-            self.on_status("opening audio device...")
-            capture.start()
-            self.on_status(f"listening: {capture.device_name}")
-        except Exception as exc:  # noqa: BLE001 - surface any startup failure to the UI
-            log.exception("pipeline failed to start")
-            self.on_status(f"error: {exc}")
+        name = short_model_name(cfg.model)
+        if self.models.has_transcriber(cfg):
+            self._set_state(LOADING, f"Preparing {name}")
+        elif is_cached(cfg.model):
+            self._set_state(LOADING, f"Loading recognition model: {name}")
+        else:
+            self._set_state(
+                LOADING,
+                f"Downloading recognition model: {name} (first run only, about 1.5 GB)",
+            )
+        self.transcriber, fresh = self.models.transcriber(cfg)
+        for note in self.transcriber.notes:
+            self._notice("warning", note)
+        if fresh:
+            self.transcriber.warmup()
+        if self._stop.is_set():
+            return
+        if self.transcriber.device == "cpu" and cfg.device != "cpu":
+            # Adapt the cadence to what a CPU can do, rather than run passes
+            # back to back and call it real time.
+            cfg.process_interval_sec = max(cfg.process_interval_sec, 1.0)
+            cfg.beam_size = 1
+            cfg.max_buffer_sec = min(cfg.max_buffer_sec, 8.0)
+        self.metrics.engine = (
+            f"{short_model_name(self.transcriber.model_id)} on "
+            f"{self.transcriber.device} ({self.transcriber.compute_type})"
+        )
+
+        self._load_translators()
+        if self._stop.is_set():
             return
 
-        gate = EnergyGate(self.cfg.energy_gate_db)
-        stream = StreamingTranscriber(self.cfg, self.transcriber)
-        preroll: deque[np.ndarray] = deque()
-        preroll_sec = 0.0
-        in_speech = False
-        pending_sec = 0.0
+        vad, note = self.models.vad(cfg)
+        if note:
+            self._notice("warning", note)
+            cfg.vad_filter = True
+        self._vad = vad
 
-        try:
-            while not self._stop.is_set():
-                block = capture.read(timeout=0.2)
-                if block is None:
-                    break
-                if self._paused.is_set():
-                    continue
+        if cfg.diarize_enabled and self.tracker is None:
+            self._set_state(LOADING, "Loading speaker model")
+            try:
+                self.tracker = SpeakerTracker(cfg)
+            except DiarizationUnavailable as exc:
+                # Unlabelled captions are still captions, so this degrades
+                # rather than aborting the run.
+                self._notice("warning", f"Speaker labels are off: {exc}")
 
-                state = gate.update(block)
-                block_sec = block.size / SAMPLE_RATE
-
-                if block.size:
-                    if state.active and not in_speech:
-                        # Speech just started: prepend the pre-roll so the first
-                        # word isn't clipped by the gate's reaction time.
-                        for held in preroll:
-                            self._insert(stream, held)
-                            pending_sec += held.size / SAMPLE_RATE
-                        preroll.clear()
-                        preroll_sec = 0.0
-                        in_speech = True
-
-                    if in_speech:
-                        self._insert(stream, block)
-                        pending_sec += block_sec
-                    else:
-                        preroll.append(block)
-                        preroll_sec += block_sec
-                        while preroll_sec > PREROLL_SEC and len(preroll) > 1:
-                            preroll_sec -= preroll.popleft().size / SAMPLE_RATE
-
-                # End of utterance: settle the tail, clear the buffer.
-                if in_speech and state.trailing_silence_sec >= self.cfg.silence_flush_sec:
-                    if stream.buffer_sec >= self.cfg.min_chunk_sec:
-                        self._run_pass(stream, audio_sec=pending_sec)
-                    self._announce(stream, stream.end_utterance())
-                    self._emit(stream)
-                    # Silence: settle whatever is left, whole sentence or not.
-                    self._flush_translation(stream, force=True)
-                    # The settled translation has just reached the transcript,
-                    # so a preview of the same words would only duplicate it.
-                    self._clear_live()
-                    stream.prune_history(
-                        self.cfg.display_history_sec * 2, not_before=self._mt_until
-                    )
-                    if self.tracker is not None:
-                        self.tracker.prune(
-                            stream.stream_time - self.cfg.display_history_sec * 2
-                        )
-                    in_speech = False
-                    pending_sec = 0.0
-                    continue
-
-                if not in_speech or pending_sec < self.cfg.process_interval_sec:
-                    continue
-
-                # pending_sec is how much audio piled up while the last pass ran.
-                # Well past the interval means inference is not keeping up.
-                if pending_sec > self.cfg.max_backlog_sec:
-                    stream.drop_backlog()
-                    self.stats.drops += 1
-                    self.on_status(f"dropped backlog ({pending_sec:.1f}s behind)")
-                    pending_sec = 0.0
-                    continue
-
-                self._run_pass(stream, audio_sec=pending_sec)
-                pending_sec = 0.0
-                self._emit(stream)
-                # Mid-speech: send any sentence that has completed, so continuous
-                # talk still produces English instead of waiting for a gap.
-                self._flush_translation(stream, force=False)
-                # Then preview whatever is still in flight, so the English keeps
-                # moving between those settled flushes.
-                self._flush_live(stream)
-        finally:
-            capture.stop()
-            self._stop_mt_worker()
-            log.info(
-                "pipeline stopped: %d passes, mean %.0f ms, RTF %.2f, "
-                "lag mean %.2fs max %.2fs, %d drops, "
-                "diarize RTF %.3f over %d speakers, "
-                "MT %d settled + %d preview (%.0f ms mean)",
-                self.stats.passes,
-                self.stats.mean_pass_ms,
-                self.stats.rtf,
-                self.stats.mean_lag_sec,
-                self.stats.max_lag_sec,
-                self.stats.drops,
-                self.stats.diarize_rtf,
-                self.tracker.speaker_count if self.tracker else 0,
-                self.stats.mt_calls,
-                self.stats.live_mt_calls,
-                self.stats.mean_live_mt_ms,
+    def _load_translators(self) -> None:
+        cfg = self.cfg
+        if self._direct or not cfg.mt_enabled:
+            self.metrics.translator = (
+                "Whisper (direct)" if self._direct else "none - Japanese only"
             )
+            return
+
+        want_llm = cfg.mt_backend == "llm"
+        need_nmt = (not want_llm) or cfg.mt_hybrid_preview or cfg.mt_fallback_to_nmt
+
+        final = None
+        if want_llm:
+            self._set_state(
+                LOADING, f"Loading translation model: {short_model_name(cfg.llm_model)}"
+            )
+            try:
+                final = self.models.llm(cfg)
+            except TranslationUnavailable as exc:
+                if not cfg.mt_fallback_to_nmt:
+                    raise
+                self._notice(
+                    "warning", f"{exc} Using the built-in translator for now."
+                )
+        if self._stop.is_set():
+            return
+
+        nmt = None
+        if need_nmt or final is None:
+            if not self.models.has_nmt(cfg):
+                self._set_state(LOADING, "Loading translation model: Sugoi v4")
+            try:
+                nmt, fresh = self.models.nmt(cfg)
+                if fresh:
+                    nmt.warmup()
+            except TranslationUnavailable as exc:
+                if final is None:
+                    # Captions in Japanese are still useful, so this degrades
+                    # rather than aborting the run.
+                    self._notice(
+                        "warning",
+                        f"Translation is off - showing Japanese only. {exc}",
+                    )
+                else:
+                    self._notice("warning", f"No draft translations: {exc}")
+
+        self._nmt = self._wrap(nmt) if nmt is not None else None
+        if final is not None:
+            final.reset()
+            self._final_tr = self._wrap(final)
+            self._preview_tr = self._nmt if cfg.mt_hybrid_preview else None
+            self.metrics.translator = short_model_name(cfg.llm_model)
+            if self._preview_tr is not None:
+                self.metrics.translator += " (drafts: Sugoi v4)"
+        else:
+            self._final_tr = self._nmt
+            self._preview_tr = self._nmt
+            self.metrics.translator = "Sugoi v4" if self._nmt else "none - Japanese only"
+
+    def _open_source(self):
+        """Open the capture device, waiting for one to exist if need be."""
+        if self._source is not None:
+            self._source.start()
+            self.metrics.device_name = getattr(self._source, "device_name", "")
+            return self._source
+
+        announced = False
+        self._set_state(LOADING, "Opening audio device")
+        while not self._stop.is_set():
+            capture = LoopbackCapture(
+                frames_per_buffer=self.cfg.frames_per_buffer,
+                max_queue_sec=self.cfg.audio_queue_sec,
+                on_event=self._on_device_event,
+            )
+            try:
+                capture.start()
+            except AudioDeviceError as exc:
+                if not announced:
+                    announced = True
+                    self._set_state(
+                        ERROR, f"No audio device to listen to: {exc} Waiting for one."
+                    )
+                self._stop.wait(2.0)
+                continue
+            self.metrics.device_name = capture.device_name
+            return capture
+        return None
+
+    def _on_device_event(self, kind: str, message: str) -> None:
+        self.metrics.device_reopens += 1
+        if kind == "lost":
+            self._notice("warning", f"The audio device went away: {message}")
+        elif kind == "restored":
+            self.metrics.device_name = message
+            self._notice("info", f"Audio is back: now listening to {message}")
+        else:
+            self.metrics.device_name = message
+            self._notice("info", f"Output device changed: now listening to {message}")
+
+    def _start_workers(self) -> None:
+        if self._final_tr is not None:
+            self._final_thread = threading.Thread(
+                target=self._final_worker, name="caption-final", daemon=True
+            )
+            self._final_thread.start()
+        if self._preview_tr is not None:
+            self._preview_thread = threading.Thread(
+                target=self._preview_worker, name="caption-preview", daemon=True
+            )
+            self._preview_thread.start()
+
+    def _stop_workers(self) -> None:
+        """Sentinel the workers and give them a moment to notice.
+
+        The joins are bounded because an LLM request in flight runs to its
+        timeout and cannot be interrupted. Outliving this is harmless: the
+        threads are daemons, and _stop is set, so they emit nothing.
+        """
+        self._stop.set()
+        if self._final_thread is not None:
+            self._final_q.put(None)
+            self._final_thread.join(timeout=2.0)
+            self._final_thread = None
+        if self._preview_thread is not None:
+            with self._preview_cond:
+                self._preview_cond.notify_all()
+            self._preview_thread.join(timeout=2.0)
+            self._preview_thread = None
+
+    # -- engine loop -------------------------------------------------------
+
+    def _loop(self, source) -> None:
+        cfg = self.cfg
+        silero = cfg.vad_mode == "silero" and type(self._vad).__name__ == "SileroVAD"
+        gate = SpeechGate(
+            self._vad,
+            threshold=cfg.vad_threshold,
+            endpoint_silence_sec=(
+                cfg.endpoint_silence_sec if silero else cfg.silence_flush_sec
+            ),
+            soft_pause_sec=cfg.soft_pause_sec,
+        )
+        stream = StreamingTranscriber(cfg, self.transcriber)
+        self._gate = gate
+        self._stream = stream
+
+        new_audio = 0.0  # seconds given to the recogniser since its last pass
+        pause_hint = False
+        last_audio = time.perf_counter()
+        silence_fed = 0.0
+        was_paused = False
+        buffer_latency = getattr(source, "buffer_latency_sec", 0.0)
+        self._set_state(LISTENING, self.metrics.device_name)
+
+        while not self._stop.is_set():
+            blocks = source.read_all(timeout=0.05)
+            if blocks is None:
+                break
+            now = time.perf_counter()
+
+            if self._paused.is_set():
+                if not was_paused:
+                    was_paused = True
+                    self._enter_pause(stream, gate)
+                    new_audio = 0.0
+                continue
+            if was_paused:
+                was_paused = False
+                last_audio, silence_fed = now, 0.0
+                self._set_state(LISTENING, self.metrics.device_name)
+
+            events = []
+            if blocks:
+                last_audio, silence_fed = now, 0.0
+                newest = blocks[-1][0]
+                self.metrics.capture_latency.add(now - newest + buffer_latency)
+                backlog = now - blocks[0][0]
+                self.metrics.backlog_sec = backlog
+                self.metrics.backlog_max_sec = max(self.metrics.backlog_max_sec, backlog)
+                audio = (
+                    blocks[0][1]
+                    if len(blocks) == 1
+                    else np.concatenate([b for _t, b in blocks])
+                )
+                self.metrics.audio_sec += audio.size / SAMPLE_RATE
+                events = gate.feed(audio)
+                emitted = any(e.kind == AUDIO for e in events)
+            else:
+                emitted = False
+                newest = now
+                self.metrics.backlog_sec = 0.0
+                # The device is delivering nothing at all, which is what a
+                # paused player looks like to loopback. Count it as silence.
+                idle = now - last_audio
+                if idle - silence_fed >= 0.1:
+                    events = gate.feed_silence(idle - silence_fed)
+                    silence_fed = idle
+
+            for event in events:
+                if event.kind == AUDIO:
+                    self._insert(stream, event.audio)
+                    new_audio += event.audio.size / SAMPLE_RATE
+                elif event.kind == PAUSE:
+                    pause_hint = True
+                elif event.kind == CLOSE:
+                    self._close_utterance(stream, gate)
+                    new_audio = 0.0
+                    pause_hint = False
+            if emitted:
+                # The newest sample the gate has passed on was captured
+                # `buffered` before the newest block arrived.
+                self._clock = newest - gate.buffered_sec - stream.stream_time
+
+            if gate.in_utterance:
+                self._context_reset_done = False
+                if new_audio > cfg.max_backlog_sec:
+                    # One pass took longer than the whole backlog allowance.
+                    # Catch up rather than transcribe audio nobody is still
+                    # watching the picture for.
+                    self.metrics.backlog_drops += 1
+                    self.metrics.backlog_dropped_sec += stream.buffer_sec
+                    stream.drop_backlog()
+                    self._pass_voiced = None
+                    self._deferred_hold = None
+                    self._notice(
+                        "warning",
+                        f"Recognition fell {new_audio:.0f}s behind and skipped "
+                        "ahead. Try the Fast profile.",
+                    )
+                    new_audio = 0.0
+                    continue
+                due = new_audio >= cfg.process_interval_sec or (
+                    pause_hint and new_audio >= 0.1
+                )
+                if self._quiet_base is not None and gate.voiced_total != self._quiet_base:
+                    self._quiet_base = None
+                if (
+                    due
+                    and self._quiet_base is None
+                    and stream.buffer_sec >= cfg.min_chunk_sec
+                ):
+                    ok = self._pass(stream, new_audio)
+                    new_audio = 0.0
+                    pause_hint = False
+                    if ok:
+                        self._emit_caption(stream)
+                        self._flush(stream, gate, closed=False)
+                        self._request_preview(stream)
+                if self._eager_ready(stream, gate):
+                    # The sentence reads as finished and the speaker has
+                    # paused. Take it now; the rest of the endpoint would
+                    # only be waiting to be told what the text already says.
+                    gate.end_utterance()
+                    self.metrics.eager_endpoints += 1
+                    self._close_utterance(stream, gate)
+                    new_audio = 0.0
+                    pause_hint = False
+            else:
+                if (
+                    self._deferred_hold is not None
+                    and gate.silence_sec >= self._deferred_hold
+                ):
+                    # They did not go on. What there is, is the sentence.
+                    self._finalize(stream, gate)
+                    new_audio = 0.0
+                if self._holding:
+                    # Text held back because it ended on a dangling particle.
+                    # Look again as the silence grows.
+                    self._flush(stream, gate, closed=True)
+                if (
+                    not self._context_reset_done
+                    and gate.silence_sec >= cfg.llm_context_reset_sec
+                ):
+                    self._context_reset_done = True
+                    if self._final_tr is not None:
+                        self._final_tr.reset()
+
+            self._refresh_state(gate)
+            self._tick(source)
+
+    def _enter_pause(self, stream: StreamingTranscriber, gate: SpeechGate) -> None:
+        """Drop everything in flight. Resuming starts on fresh audio."""
+        stream.reset()
+        gate.reset()
+        self._pause_marks.clear()
+        self._holding = False
+        self._deferred_hold = None
+        self._pass_voiced = None
+        self._quiet_base = None
+        self._epoch += 1
+        self._preview_source = ""
+        self._emit_preview("", "")
+        self._caption = ("", "")
+        self._emit("on_caption", "", "")
+        self._set_state(PAUSED, "")
+
+    def _refresh_state(self, gate: SpeechGate) -> None:
+        if self.state == PAUSED:
+            return
+        if gate.in_utterance:
+            state = RECOGNIZING
+        elif self._final_busy or not self._final_q.empty():
+            state = TRANSLATING
+        else:
+            state = LISTENING
+        if state != self.state:
+            self._set_state(state, self.metrics.device_name)
+
+    def _tick(self, source) -> None:
+        now = time.perf_counter()
+        if now - self._last_metrics < 1.0:
+            return
+        self._last_metrics = now
+        metrics = self.metrics
+        metrics.capture_dropped_blocks = getattr(source, "dropped_blocks", 0)
+        metrics.capture_dropped_sec = getattr(source, "dropped_sec", 0.0)
+        if self.tracker is not None:
+            metrics.speakers = self.tracker.speaker_count
+        self._emit("on_metrics", metrics.snapshot())
+
+    # -- recognition -------------------------------------------------------
 
     def _insert(self, stream: StreamingTranscriber, block: np.ndarray) -> None:
         """Hand one block to the transcriber, and to the speaker tracker.
@@ -386,29 +814,348 @@ class CaptionPipeline:
         offsets every later attribution by that block's duration.
         """
         stream.insert_audio(block)
+        self.metrics.speech_sec += block.size / SAMPLE_RATE
         if self.tracker is not None:
             self.tracker.feed(block)
 
-    def _run_pass(self, stream: StreamingTranscriber, audio_sec: float = 0.0) -> None:
+    def _pass(
+        self, stream: StreamingTranscriber, audio_sec: float, force: bool = False
+    ) -> bool:
+        """Run the recogniser once. False if the pass failed and was absorbed."""
         t0 = time.perf_counter()
-        committed, _unstable = stream.process()
+        gate = self._gate
+        pause = gate.open_pause if gate is not None else None
+        try:
+            settled, _unstable = stream.process(
+                force=force, quiet_from=pause.start if pause is not None else None
+            )
+        except Exception as exc:  # noqa: BLE001 - CUDA faults, OOM, anything
+            self._pass_failures += 1
+            log.exception("recognition pass failed")
+            if self._pass_failures >= _MAX_PASS_FAILURES:
+                raise
+            # Usually memory pressure from another program. The buffer is the
+            # only thing this pass can give up, so give it up and go again.
+            self.metrics.recoveries += 1
+            stream.discard_audio()
+            self._pass_voiced = None
+            self._deferred_hold = None
+            self._notice(
+                "warning",
+                "A recognition pass failed"
+                + (" (the GPU is out of memory)" if _is_oom(exc) else "")
+                + ". Skipped a moment of audio and carried on.",
+            )
+            return False
+        self._pass_failures = 0
+        if gate is not None:
+            self._pass_voiced = gate.voiced_total
+            self._pass_quiet = gate.trailing_quiet_sec if gate.in_utterance else gate.silence_sec
         elapsed = time.perf_counter() - t0
-        self.stats.passes += 1
-        self.stats.total_infer_sec += elapsed
-        self.stats.total_audio_sec += audio_sec or self.cfg.process_interval_sec
+        self.metrics.passes += 1
+        self.metrics.pass_sec.add(elapsed)
+        self.metrics.infer_sec += elapsed
         if self.tracker is not None:
-            # Before _announce, so the words this pass settled can be attributed.
             t0 = time.perf_counter()
             self.tracker.process()
-            self.stats.total_diarize_sec += time.perf_counter() - t0
-        self._announce(stream, committed)
+            self.metrics.diarize_sec += time.perf_counter() - t0
+        self._note_settled(stream, settled)
+        if pause is not None:
+            # The buffer ended inside this pause, so what was just read is
+            # what was said before it.
+            heard = stream.pending + stream.hypothesis.unstable
+            self._pause_marks[round(pause.start, 3)] = self._sent_letters + sum(
+                _letter_count(w.text) for w in heard
+            )
+        if gate is not None and not force:
+            self._unstall(stream, gate)
+        return True
+
+    @staticmethod
+    def _cut_point(pause, stream: StreamingTranscriber) -> float:
+        """Where in a pause to cut the buffer: late, but not at its very end."""
+        end = min(pause.end, stream.stream_time)
+        return max(pause.start + 0.05, end - _LEAD_IN_SEC)
+
+    def _unstall(self, stream: StreamingTranscriber, gate: SpeechGate) -> None:
+        """Notice the recogniser has stopped reading, and move it on.
+
+        Two ways it happens, both measured on the benchmark's samples.
+
+        At a pause: the reading ends at a pause, the speaker went on a second
+        ago, and nothing of what they have said since is in it. The model
+        has taken what came before the pause for the whole utterance.
+
+        In mid-sentence: the reading simply stops, a second and a half or
+        more short of the audio, and stays there pass after pass while the
+        speaker carries on. Left alone this lost forty characters of one
+        sentence - in some real-time runs and not others, since whether a
+        pass lands on a buffer length the model stops early on is a matter
+        of timing.
+
+        Either way everything read so far is settled as read and the buffer
+        is cut - in the pause if there is one, at the end of the last word
+        read if there is not - so the next pass starts on the speech that
+        was being ignored.
+
+        Only when two passes running have stopped at the same place.
+        Settling "as read" makes whatever was read permanent, and one pass
+        is not grounds for that: the recogniser reads the breath before a
+        first word as a phrase on one pass and reads straight through it,
+        correctly, on the next.
+        """
+        said = stream.hypothesis.last_pass
+        read_until = said[-1].end if said else stream.buffer_start
+        where = cut = None
+        for pause in gate.pauses:
+            if pause.start < stream.buffer_start or pause.end < read_until - 0.15:
+                continue
+            if stream.stream_time - pause.end >= _STALL_SEC:
+                where, cut = pause.start, self._cut_point(pause, stream)
+            break
+        if (
+            where is None
+            and said
+            and gate.in_utterance
+            and stream.stream_time - read_until >= _STALL_NO_PAUSE_SEC
+        ):
+            where = cut = read_until
+        previous, self._stalled_at = self._stalled_at, where
+        if where is None or previous is None or abs(previous - where) > 0.3:
+            return
+        self._stalled_at = None
+        self.metrics.stall_splits += 1
+        self._split(stream, gate, cut)
+
+    def _split(self, stream: StreamingTranscriber, gate: SpeechGate, at: float) -> None:
+        """Cut the buffer at stream time `at`, settling what was said before it."""
+        self._note_settled(stream, stream.split(at))
+        pause = gate.open_pause
+        if pause is not None and at >= pause.start:
+            # Cut inside a pause that is still going on: nobody has spoken
+            # since, and there is nothing in the buffer to read.
+            self._quiet_base = gate.voiced_total
+        else:
+            # Speech was left in the buffer, and no pass has read it as the
+            # buffer now stands.
+            self._quiet_base = None
+            self._pass_voiced = None
+
+    def _heard_the_end(self, gate: SpeechGate) -> bool:
+        """Has a pass already looked at everything said, with quiet after it?
+
+        True when nothing has been voiced since the last pass and that pass
+        ran far enough into the pause to have heard the last word finish.
+        Running the recogniser again would hand it the same speech plus more
+        silence, and get the same answer a hundred milliseconds later.
+        """
+        return (
+            self._pass_voiced is not None
+            and self._pass_voiced == gate.voiced_total
+            and self._pass_quiet >= _HEARD_QUIET_SEC
+        )
+
+    def _hold_sec(self, text: str) -> float:
+        """How much silence it takes to believe this text is a whole sentence.
+
+        The speaker has stopped. How long to wait before believing they have
+        finished depends on how finished it sounds: a predicate, not at all;
+        a dangling particle, a good while; anything else, somewhere between.
+        """
+        cfg = self.cfg
+        if self._direct or not text or not has_content(text):
+            return 0.0
+        if looks_complete(text) and not is_fragment(text):
+            return 0.0
+        if looks_incomplete(text):
+            return cfg.long_pause_sec
+        return (cfg.endpoint_silence_sec + cfg.long_pause_sec) / 2
+
+    def _reads_finished(self, stream: StreamingTranscriber, gate: SpeechGate) -> bool:
+        """The speaker is pausing, and what a pass heard of it is a sentence."""
+        cfg = self.cfg
+        if cfg.eager_endpoint_sec <= 0 or self._direct or not gate.in_utterance:
+            return False
+        if gate.open_pause is None or not self._heard_the_end(gate):
+            return False
+        text = join_words(self._open + stream.hypothesis.unstable)
+        return bool(text) and looks_complete(text) and not is_fragment(text)
+
+    def _eager_ready(self, stream: StreamingTranscriber, gate: SpeechGate) -> bool:
+        """May the open utterance be closed before the endpoint silence is up?
+
+        Yes, once a pass made during the pause reads as a finished sentence
+        and the pause has lasted eager_endpoint_sec. Both halves were
+        measured, because each looked like the place to save time:
+
+        The wait cannot be much shorter. Closing 0.2 s into a pause put the
+        error rate up from 15.6% to 16.2%, nearly all of it on the samples
+        where people pause mid-sentence: at 0.2 s the speaker has often only
+        drawn breath, and the line is cut in the middle of なんとなく.
+
+        A second pass to confirm the first buys nothing. Requiring two
+        agreeing passes gave 15.4% against 15.5% for one pass and the same
+        0.3 s of patience - they are two readings of the same audio by the
+        same model, and agree with each other whether or not they are right.
+        It was the waiting that helped, and waiting is free.
+        """
+        if gate.trailing_quiet_sec < self.cfg.eager_endpoint_sec:
+            return False
+        return self._reads_finished(stream, gate)
+
+    def _close_utterance(self, stream: StreamingTranscriber, gate: SpeechGate) -> None:
+        """The speaker has stopped. Finish the sentence, or wait to be sure."""
+        heard_enough = gate.utterance_speech_sec >= self.cfg.min_speech_sec
+        if not heard_enough:
+            if self._deferred_hold is not None:
+                # A click or a breath after speech that is still being held.
+                # It is in the buffer now and does no harm there; the wait
+                # for the speaker to go on simply starts again.
+                return
+            # A click or a breath. Whisper would caption it anyway.
+            stream.discard_audio()
+            self._pass_voiced = None
+            self._emit_caption(stream)
+            self._flush(stream, gate, closed=True)
+            return
+
+        if self._heard_the_end(gate):
+            self.metrics.passes_reused += 1
+        elif stream.buffer_sec > 0:
+            # One last look with the whole utterance in the buffer.
+            self._pass(stream, 0.0, force=True)
+
+        pending = self._open + stream.hypothesis.unstable
+        text = join_words(pending)
+        hold = self._hold_sec(text)
+        overdue = bool(pending) and (
+            pending[-1].end - pending[0].start >= self.cfg.mt_max_utterance_sec
+        )
+        if hold > gate.silence_sec and not overdue:
+            # It does not read as finished: it stops on a particle, or it is
+            # a syllable or two. Keep the audio and keep listening. If the
+            # speaker goes on, the recogniser hears one sentence instead of
+            # two halves; if they do not, the loop finalises it once the
+            # silence has lasted `hold`.
+            self._deferred_hold = hold
+            self.metrics.deferred_closes += 1
+            self._emit_caption(stream)
+            self._flush(stream, gate, closed=False)
+            self._request_preview(stream)
+            return
+        self._finalize(stream, gate)
+
+    def _finalize(self, stream: StreamingTranscriber, gate: SpeechGate) -> None:
+        """Settle everything said so far and hand it on."""
+        self._deferred_hold = None
+        self._quiet_base = None
+        if not self._heard_the_end(gate) and stream.buffer_sec > 0:
+            self._pass(stream, 0.0, force=True)
+        self._read_to_the_end(stream, gate)
+        # Nothing more is coming, so there is nothing for a later pass to
+        # agree with: everything is settled, on the last pass's reading of
+        # the whole utterance.
+        self._note_settled(stream, stream.end_utterance())
+        self._pass_voiced = None
+        if not self._direct and gate.pauses:
+            # When the speaker stopped, on the stream clock: the start of the
+            # pause that closed the utterance. Words placed after it were not
+            # said.
+            unspoken = stream.hypothesis.drop_tail(gate.pauses[-1].start + _TAIL_SLACK_SEC)
+            if unspoken:
+                self.metrics.tail_drops += 1
+                log.info("dropped unspoken tail: %r", join_words(unspoken))
+        self._emit_caption(stream)
+        self._flush(stream, gate, closed=True)
+        stream.prune_history(30.0)
+        gate.prune(stream.stream_time - 60.0)
+        if len(self._pause_marks) > 400:
+            horizon = stream.stream_time - 60.0
+            self._pause_marks = {t: n for t, n in self._pause_marks.items() if t >= horizon}
+        if self.tracker is not None:
+            self.tracker.prune(stream.stream_time - 60.0)
+
+    def _read_to_the_end(self, stream: StreamingTranscriber, gate: SpeechGate) -> None:
+        """Make sure the last reading got as far as the speaker did.
+
+        The same failure _unstall watches for while someone is talking, met
+        at the end instead: the final pass stops well short of where the
+        speech stopped. Nothing later will pick the rest up - this is the
+        last look - so what was read is settled, the buffer is cut where the
+        reading ended, and the remainder is read by itself. A few times at
+        most; a recogniser that keeps stopping is not going to be talked
+        round.
+        """
+        if not gate.pauses or self._direct:
+            return
+        speech_end = gate.pauses[-1].start
+        for _ in range(4):
+            said = stream.hypothesis.last_pass
+            if not said:
+                return
+            read_until = said[-1].end
+            # The same allowance as in mid-speech, though there is no lag
+            # to allow for here. A tighter one was tried: at 0.8 s a laugh
+            # after the last word was sent back to the recogniser by itself
+            # and came back as a sentence nobody said.
+            if (
+                speech_end - read_until < _STALL_NO_PAUSE_SEC
+                or read_until <= stream.buffer_start + 0.2
+            ):
+                return
+            self.metrics.stall_splits += 1
+            self._note_settled(stream, stream.split(read_until))
+            if not self._pass(stream, 0.0, force=True):
+                return
+
+    def _wall(self, stream_time: float) -> float:
+        """perf_counter time at which a moment on the stream clock happened."""
+        return self._clock + stream_time
+
+    def _note_settled(self, stream: StreamingTranscriber, words: list[Word]) -> None:
+        """Record how long the words that just settled took to do so."""
+        revised = stream.hypothesis.revisions
+        if revised:
+            self.metrics.revised_lines += revised
+            stream.hypothesis.revisions = 0
+        if not words:
+            return
+        # From the word being spoken to its text being shown as settled.
+        lag = max(0.0, time.perf_counter() - self._wall(words[-1].end))
+        self.metrics.commits += 1
+        self.metrics.source_lag.add(lag)
+
+    def _emit_caption(self, stream: StreamingTranscriber) -> None:
+        committed = join_words(self._open)
+        unstable = join_words(stream.hypothesis.unstable)
+        if self._direct:
+            # Whisper is writing English itself; the line in progress is the
+            # preview and there is no Japanese to show.
+            self._emit_preview(f"{committed} {unstable}".strip(), "")
+            return
+        if (committed, unstable) == self._caption:
+            return
+        self._caption = (committed, unstable)
+        self._emit("on_caption", committed, unstable)
+
+    # -- segmentation ------------------------------------------------------
+
+    def _speaker_of(self, words: list[Word]) -> int:
+        """Who said this run of words, over its whole span."""
+        if self.tracker is None or not words:
+            return UNKNOWN
+        return self.tracker.speaker_for(words[0].start, words[-1].end)
 
     def _speaker_cut(self, words: list[Word]) -> int:
         """How many leading words precede the first change of speaker. 0 if none.
 
         Windows the tracker could not attribute are skipped rather than treated
         as a change: a brief quiet patch mid-sentence would otherwise split an
-        utterance in two and hand MT both halves separately.
+        utterance in two and hand the translator both halves separately.
+
+        A change one or two words in is almost always the previous turn's tail
+        landing inside a boundary window, not a real turn, so changes that
+        would strand less than mt_min_chunk_sec are ignored.
         """
         if self.tracker is None:
             return 0
@@ -420,207 +1167,397 @@ class CaptionPipeline:
             if current == UNKNOWN:
                 current = speaker
             elif speaker != current:
+                if words[i - 1].end - words[0].start < self.cfg.mt_min_chunk_sec:
+                    return 0
                 return i
         return 0
 
-    def _flush_translation(self, stream: StreamingTranscriber, force: bool) -> None:
-        """Translate whatever source text has settled but not yet been sent.
+    def _decide(
+        self, pending: list[Word], stream: StreamingTranscriber, gate: SpeechGate, closed: bool
+    ) -> int:
+        """How many leading words of `pending` to translate now. 0 to wait."""
+        cfg = self.cfg
+        unstable = stream.hypothesis.unstable
+        pauses = list(gate.pauses)
+        if gate.open_pause is not None:
+            pauses.append(gate.open_pause)
+        for pause in pauses:
+            pause.letters = self._pause_marks.get(round(pause.start, 3))
+        base = self._sent_letters
+
+        next_word = unstable[0].text if unstable else ""
+        next_start = unstable[0].start if unstable else None
+        # A sentence mark on the last settled word is trusted only if the
+        # speaker has actually stopped there.
+        paused_at_end = closed or len(pending) in pause_boundaries(
+            pending, pauses, next_start, base
+        )
+        cut = sentence_cut(pending, next_word=next_word, trailing_ok=paused_at_end)
+        if not closed and not self._direct:
+            cut = max(
+                cut,
+                pause_cut(
+                    pending,
+                    pauses,
+                    next_word=next_word,
+                    next_start=next_start,
+                    base_letters=base,
+                ),
+            )
+        change = self._speaker_cut(pending)
+        if change:
+            # The tracker says where the voice changed to within a second or
+            # so. The line is cut at the pause nearest that, not at the word.
+            change = nearest_boundary(
+                pending, pause_boundaries(pending, pauses, next_start, base), change
+            )
+        if change and (cut == 0 or change < cut):
+            cut = change
+
+        span = pending[-1].end - pending[0].start
+        if closed:
+            rest = pending[cut:]
+            if rest:
+                # The speaker has stopped. How long to wait before believing
+                # they have finished depends on how finished it sounds:
+                # a predicate, not at all; a dangling particle, a good while;
+                # anything else, somewhere between.
+                release = gate.silence_sec >= self._hold_sec(join_words(rest))
+                if release or span >= cfg.mt_max_utterance_sec:
+                    cut = len(pending)
+            return cut
+
+        if cut == 0 and (
+            span >= cfg.mt_max_utterance_sec or len(join_words(pending)) >= 110
+        ):
+            # Overdue. Something has to be shown; cut at the best place there is.
+            cut = overdue_cut(pending, pauses, next_word=next_word, base_letters=base)
+        return cut
+
+    def _flush(self, stream: StreamingTranscriber, gate: SpeechGate, closed: bool) -> None:
+        """Send whatever has become a finished unit to the translator.
 
         Called after every pass, not only at end of utterance: waiting for
-        silence means a conversation with no gaps in it never gets translated at
-        all. A sentence ending is the natural unit, with mt_max_utterance_sec as
-        the backstop for speech that never provides one.
-
-        Progress is tracked by timestamp rather than by index into the committed
-        list, because prune_history() rewrites that list and any saved index
-        would then point at the wrong word.
+        silence means a conversation with no gaps in it never gets translated
+        at all.
         """
-        if self.translator is None:
-            return
-        pending = [
-            w for w in stream.hypothesis.committed if w.start >= self._mt_until
-        ]
+        pending = self._open
         if not pending:
+            self._holding = False
             return
-
-        if force:
-            cut = len(pending)
-        else:
-            # A change of voice ends an utterance whatever its length, so it is
-            # decided before the hold below rather than after it. Checking it
-            # afterwards means a short turn is held waiting for a sentence
-            # ending that belongs to the *next* speaker - which is exactly the
-            # merging this was meant to stop.
-            change = self._speaker_cut(pending)
-            # A change one or two words in is almost always the previous turn's
-            # tail landing inside a boundary window, not a real turn. Cutting
-            # there hands MT a fragment, which usually translates to nothing at
-            # all - and because the cut still advances _mt_until, that text is
-            # consumed and never appears. Ignore changes too short to be real.
-            if change and pending[change - 1].end - pending[0].start < self.cfg.mt_min_chunk_sec:
-                change = 0
-            cut = _sentence_cut(pending)
-            if change and (cut == 0 or change < cut):
-                cut = change
-            elif cut == 0:
-                # No sentence ending and nobody new. Hold, unless this has run
-                # long enough that holding would mean showing nothing.
-                if pending[-1].end - pending[0].start < self.cfg.mt_max_utterance_sec:
-                    return
-                # Overdue: cut on the last clause mark if there is one, so the
-                # translator gets a whole clause rather than a phrase severed
-                # mid-thought.
-                cut = _clause_cut(pending) or len(pending)
-
-        chunk = pending[:cut]
-        # Advance regardless of the outcome below, so a chunk that translates to
-        # nothing cannot be retried forever.
-        self._mt_until = chunk[-1].end
-
-        source = join_words(chunk)
-        # _mt_until has already advanced, so returning here drops the span
-        # rather than retrying it - which is the intent for both cases.
-        if not source or _NO_CONTENT.match(source):
+        cut = self._decide(pending, stream, gate, closed)
+        if cut <= 0:
+            self._holding = closed
             return
-        # Resolved on this thread rather than in the worker: the tracker belongs
-        # to this thread, and prune() will have moved past this span by the time
-        # a slow translation comes back.
-        speaker = self._speaker_of(chunk)
-        if self._mt_queue is not None:
-            self._mt_queue.put((source, speaker))
-            return
-        t0 = time.perf_counter()
-        english = self.translator.translate(source)
-        self.stats.mt_calls += 1
-        self.stats.total_mt_sec += time.perf_counter() - t0
-        # Emitted even when the translation came back empty. The text has been
-        # consumed either way - _mt_until has moved past it - so dropping it
-        # here loses the utterance outright, and the source line is exactly what
-        # this window keeps history for. The transcript shows source-only.
-        self.on_translation(source, english, speaker)
+        # From here these words are a line of the transcript. Nothing that
+        # is recognised later can change them.
+        chunk = stream.take(cut)
+        self._sent_letters += sum(_letter_count(w.text) for w in chunk)
+        self._holding = closed and bool(stream.pending)
+        text = join_words(chunk)
+        if text:
+            self._emit(
+                "on_commit", text, self._speaker_of(chunk), chunk[0].start, chunk[-1].end
+            )
+        if not closed:
+            self._split_after(chunk, stream, gate)
+        self._emit_unit(chunk, stream)
+        # The words just cut are no longer "in progress".
+        self._emit_caption(stream)
 
-    # -- async MT ----------------------------------------------------------
+    def _split_after(
+        self, chunk: list[Word], stream: StreamingTranscriber, gate: SpeechGate
+    ) -> None:
+        """A line was cut while the speaker is still going. If it ended at a
+        pause, cut the audio there as well.
 
-    def _mt_worker(self) -> None:
-        """Drain the translation queue off the ASR thread.
-
-        One worker, so utterances are translated and emitted in the order they
-        were committed. It is the only writer of the mt_* counters while it
-        runs, which is why those need no lock.
+        The line's audio is of no further use to the recogniser - its text is
+        fixed - and left in the buffer it does harm: see
+        StreamingTranscriber.split.
         """
-        assert self._mt_queue is not None
-        while True:
-            item = self._mt_queue.get()
-            if item is None:
+        rest = stream.pending or stream.hypothesis.unstable
+        after = (chunk[-1].start + chunk[-1].end) / 2.0
+        until = (rest[0].start + rest[0].end) / 2.0 if rest else float("inf")
+        pauses = list(gate.pauses)
+        if gate.open_pause is not None:
+            pauses.append(gate.open_pause)
+        for pause in reversed(pauses):
+            if pause.end <= stream.buffer_start:
+                break
+            # The pause has to be the one the line ended at, not some later
+            # one: cutting there would throw away speech nobody has read.
+            if pause.start > chunk[-1].end + 0.4:
+                continue
+            if after < pause.center <= until:
+                self.metrics.pause_splits += 1
+                self._split(stream, gate, self._cut_point(pause, stream))
                 return
-            # Past this point the run is over: drain the backlog without
-            # translating it, so teardown is not held up by work nobody will
-            # see. The same check runs again below because a call already in
-            # flight cannot be cancelled.
+
+    def _emit_unit(self, chunk: list[Word], stream: StreamingTranscriber) -> None:
+        source = join_words(chunk)
+        # The words are consumed either way; text with nothing in it is dropped
+        # here rather than shown as an empty caption.
+        if not source or not has_content(source):
+            return
+        if source.strip().lower() in _HALLUCINATIONS:
+            return
+        # A syllable or two that repeats how the previous unit ended is that
+        # unit's last token heard twice across the boundary, not speech. On
+        # its own it translates to something confident and invented - a lone
+        # だ came back as "That's right."
+        core = "".join(ch for ch in source if ch.isalnum())
+        if len(core) <= 2 and self._last_unit.endswith(core):
+            return
+        self._last_unit = core
+
+        spoken_at = self._wall(chunk[-1].end)
+        utterance = Utterance(
+            id=self._next_id,
+            source=source,
+            speaker=self._speaker_of(chunk),
+            start=chunk[0].start,
+            end=chunk[-1].end,
+            wall_time=time.time() - max(0.0, time.perf_counter() - spoken_at),
+            final=False,
+        )
+        self._next_id += 1
+        self._epoch += 1
+        self._preview_fresh = True
+        self.metrics.utterances += 1
+
+        if self._direct:
+            utterance.english, utterance.source = source, ""
+            utterance.engine = "whisper"
+            self._finish(utterance, spoken_at)
+            return
+        if self._final_tr is None:
+            self._finish(utterance, spoken_at)
+            return
+
+        # With an LLM finishing the line there is a wait of a few hundred
+        # milliseconds. If a draft of exactly this text is already on screen,
+        # move it into the transcript as provisional now, so the line appears
+        # at once and is corrected once, in place.
+        slow = getattr(self._final_tr, "name", "") == "llm"
+        if slow and self._preview_shown and self._preview_source == source:
+            utterance.english = self._preview_shown
+            utterance.engine = "nmt"
+            self._send(utterance)
+            self._preview_source = ""
+            self._emit_preview("", "")
+        self._final_q.put(_Job(utterance, spoken_at, self._preview_gen))
+
+    def _send(self, utterance: Utterance) -> None:
+        # A copy, because the worker goes on to change this object and the
+        # listener may read what it was given on another thread, later.
+        self._emit("on_utterance", replace(utterance))
+
+    def _finish(self, utterance: Utterance, spoken_at: float) -> None:
+        utterance.final = True
+        utterance.latency = max(0.0, time.perf_counter() - spoken_at)
+        self.metrics.final_latency.add(utterance.latency)
+        self._send(utterance)
+
+    # -- final translation -------------------------------------------------
+
+    def _final_worker(self) -> None:
+        """Translate finished units, in order, off the engine thread.
+
+        One worker, so lines are finished in the order they were spoken.
+        """
+        while True:
+            job = self._final_q.get()
+            if job is None:
+                return
+            # Past this point the run is over: drain without translating, so
+            # teardown is not held up by work nobody will see.
             if self._stop.is_set():
                 continue
-            source, speaker = item
-            # Streamed into the live line while it arrives, so the wait shows
-            # progress instead of nothing. mt_live_enabled is read per chunk
-            # rather than once, so the toolbar box takes effect mid-utterance;
-            # streamed records whether anything was actually shown, because
-            # only then is there a preview to clear.
-            streamed = False
+            self._final_busy = True
+            try:
+                self._translate_final(job)
+            except Exception:  # noqa: BLE001 - one bad line must not end the run
+                log.exception("final translation failed")
+                self._finish(job.utterance, job.spoken_at)
+            finally:
+                self._final_busy = False
 
-            def on_partial(part: str) -> None:
-                nonlocal streamed
-                if self._stop.is_set() or not self.cfg.mt_live_enabled:
-                    return
-                streamed = True
-                self.on_live_translation(part)
+    def _translate_final(self, job: _Job) -> None:
+        utterance = job.utterance
+        translator = self._final_tr
+        is_llm = getattr(translator, "name", "") == "llm"
+        had_draft = bool(utterance.english)
+        t0 = time.perf_counter()
+        first_token: list[float] = []
 
-            t0 = time.perf_counter()
-            english = self.translator.translate(source, on_partial=on_partial)
-            self.stats.mt_calls += 1
-            self.stats.total_mt_sec += time.perf_counter() - t0
-            if self._stop.is_set():
-                continue
-            # Clear before the committed line lands, or the preview and the
-            # finished utterance are both on screen saying the same thing.
-            if streamed:
-                self.on_live_translation("")
-            self.on_translation(source, english, speaker)
+        def on_partial(part: str) -> None:
+            if not first_token:
+                first_token.append(time.perf_counter() - t0)
+            # A draft that is already a whole sentence is better to look at
+            # than half of a better one. Stream only when there is nothing
+            # on the line yet.
+            if had_draft or self._stop.is_set() or not self._live:
+                return
+            utterance.english = part
+            utterance.engine = "llm"
+            self._send(utterance)
 
-    def _stop_mt_worker(self) -> None:
-        """Sentinel the worker and give it a moment to notice.
+        english = translator.translate(
+            utterance.source, on_partial=on_partial if is_llm else None
+        )
+        engine = getattr(translator, "name", "")
+        error = getattr(translator, "last_error", None)
+        if first_token:
+            self.metrics.llm_first_token_sec.add(first_token[0])
 
-        The join is bounded because a request in flight runs to
-        llm_timeout_sec and cannot be interrupted. Outliving this is harmless:
-        the thread is a daemon, and _stop is set, so it emits nothing.
+        if not english and error:
+            self.metrics.mt_failures += 1
+            english, engine = self._fallback(utterance.source, error, is_llm)
+        elif is_llm:
+            self._llm_failures = 0
+        elif self._llm_replaced and english:
+            # The LLM was given up on; every line since is a fallback line.
+            self.metrics.fallback_lines += 1
+
+        self.metrics.mt_final_sec.add(time.perf_counter() - t0)
+        if self._stop.is_set():
+            return
+        utterance.english = english
+        utterance.engine = engine if english else ""
+        self._finish(utterance, job.spoken_at)
+        # The NMT route leaves its preview up until the real line lands, so
+        # the English never blinks out between the two. Take it down now,
+        # unless a preview for the next sentence has already replaced it.
+        if self._preview_gen == job.preview_gen and not is_llm:
+            self._preview_source = ""
+            self._emit_preview("", "")
+
+    def _fallback(self, source: str, error: str, was_llm: bool) -> tuple[str, str]:
+        """Finish a line the main translator could not. Returns (english, engine)."""
+        nmt = self._nmt
+        if not was_llm or nmt is None or not self.cfg.mt_fallback_to_nmt:
+            if not self._fallback_announced:
+                self._fallback_announced = True
+                self._notice("warning", f"A line could not be translated: {error}")
+            return "", ""
+        self._llm_failures += 1
+        english = nmt.translate(source, beam_size=self.cfg.mt_beam_size)
+        self.metrics.fallback_lines += 1
+        if not self._fallback_announced:
+            self._fallback_announced = True
+            self._notice(
+                "warning",
+                f"{error} Finishing lines with the built-in translator meanwhile.",
+            )
+        if self._llm_failures >= 3 and self._final_tr is not nmt:
+            # Stop paying the timeout on every line. Start again to retry.
+            self._final_tr = nmt
+            self._llm_replaced = True
+            self.metrics.translator = "Sugoi v4 (fallback)"
+            self._notice(
+                "warning",
+                "The translation model is still not answering, so the built-in "
+                "translator has taken over. Press Stop then Start to try it again.",
+            )
+        return english, "nmt"
+
+    # -- preview -----------------------------------------------------------
+
+    def _request_preview(self, stream: StreamingTranscriber) -> None:
+        """Ask for provisional English for the sentence in progress.
+
+        Built from the settled words plus, when the recogniser is fairly sure
+        of it, its current guess at what follows. It will rewrite itself,
+        sometimes reversing meaning, because a partial Japanese sentence does
+        not determine an English prefix - which is why it is shown as a
+        preview and never enters the transcript.
         """
-        if self._mt_thread is None:
+        if self._preview_tr is None or not self._live or self._direct:
             return
-        assert self._mt_queue is not None
-        self._mt_queue.put(None)
-        self._mt_thread.join(timeout=2.0)
-        self._mt_thread = None
-
-    def _flush_live(self, stream: StreamingTranscriber) -> None:
-        """Translate the tail that has not settled, for the preview line.
-
-        Deliberately includes the unstable words as well as the settled ones:
-        the point is to be current, and this text is already displayed as a
-        guess. It will rewrite itself, sometimes reversing meaning, because a
-        partial Japanese sentence does not determine an English prefix - see the
-        note on mt_live_enabled in config.py.
-        """
-        if self.translator is None or not self.cfg.mt_live_enabled:
-            return
-        if self.cfg.mt_backend == "llm":
-            # This backend previews by streaming the utterance call instead;
-            # re-translating the tail every pass is the cost that route cannot
-            # pay. See _mt_worker.
-            return
-
-        tail = [w for w in stream.hypothesis.committed if w.start >= self._mt_until]
-        tail += stream.hypothesis.unstable
+        tail = list(self._open)
+        unstable = stream.hypothesis.unstable
+        if unstable:
+            confidence = sum(w.probability for w in unstable) / len(unstable)
+            if confidence >= self.cfg.mt_preview_min_confidence:
+                tail += unstable
         source = join_words(tail)
 
-        if len(source) < self.cfg.mt_live_min_chars:
+        if len(source) < self.cfg.mt_live_min_chars or not has_content(source):
             # Nothing worth previewing. Clear it rather than leaving the last
-            # preview stranded under a new utterance.
-            if self._live_source:
-                self._live_source = ""
-                self.on_live_translation("")
+            # preview stranded over a new sentence - but only once the line
+            # it belonged to has landed, which _translate_final handles.
             return
-        if source == self._live_source:
-            return  # tail unchanged; the previous preview still stands
+        if source == self._preview_source:
+            return  # unchanged; the preview on screen still stands
+        now = time.perf_counter()
+        if (
+            not self._preview_fresh
+            and now - self._preview_at < self.cfg.mt_preview_interval_sec
+        ):
+            return  # too soon after the last one to be readable
+        self._preview_at = now
+        self._preview_source = source
+        started = self._wall(tail[0].start)
+        with self._preview_cond:
+            self._preview_req = (self._epoch, source, started)
+            self._preview_cond.notify()
 
-        self._live_source = source
-        t0 = time.perf_counter()
-        english = self.translator.translate(source)
-        self.stats.live_mt_calls += 1
-        self.stats.total_live_mt_sec += time.perf_counter() - t0
-        self.on_live_translation(english)
+    def _preview_worker(self) -> None:
+        while not self._stop.is_set():
+            with self._preview_cond:
+                while self._preview_req is None and not self._stop.is_set():
+                    self._preview_cond.wait(0.5)
+                request, self._preview_req = self._preview_req, None
+            if request is None or self._stop.is_set():
+                continue
+            epoch, source, started = request
+            t0 = time.perf_counter()
+            try:
+                english = self._preview_tr.translate(
+                    source, beam_size=self.cfg.mt_preview_beam_size
+                )
+            except Exception:  # noqa: BLE001 - a preview is never worth a crash
+                log.exception("preview translation failed")
+                continue
+            self.metrics.mt_preview_sec.add(time.perf_counter() - t0)
+            # The sentence this was for has been cut since it was asked for;
+            # the transcript has, or is about to have, the real thing.
+            if epoch != self._epoch or self._stop.is_set() or not self._live:
+                continue
+            if not english:
+                continue
+            if self._preview_fresh:
+                self._preview_fresh = False
+                self.metrics.preview_latency.add(
+                    max(0.0, time.perf_counter() - started)
+                )
+            self.metrics.previews += 1
+            self._emit_preview(english, source)
 
-    def _clear_live(self) -> None:
-        if self._live_source:
-            self._live_source = ""
-            self.on_live_translation("")
-
-    def _speaker_of(self, words: list[Word]) -> int:
-        """Who said this run of words, over its whole span."""
-        if self.tracker is None or not words:
-            return UNKNOWN
-        return self.tracker.speaker_for(words[0].start, words[-1].end)
-
-    def _announce(self, stream: StreamingTranscriber, words: list[Word]) -> None:
-        text = join_words(words)
-        if not text:
+    def _emit_preview(self, english: str, source: str) -> None:
+        if english == self._preview_shown:
             return
-        # Distance between where the audio stream is now and the end of the word
-        # just settled: the real end-to-end caption latency.
-        lag = max(0.0, stream.stream_time - words[-1].end)
-        self.stats.commits += 1
-        self.stats.total_lag_sec += lag
-        self.stats.max_lag_sec = max(self.stats.max_lag_sec, lag)
-        self.on_commit(text, self._speaker_of(words))
+        self._preview_shown = english
+        self._preview_gen += 1
+        self._emit("on_preview", english, source)
 
-    def _emit(self, stream: StreamingTranscriber) -> None:
-        committed, unstable = stream.display_words(self.cfg.display_history_sec)
-        self.on_caption(join_words(committed), join_words(unstable))
+    # -- teardown ----------------------------------------------------------
+
+    def _summary(self) -> None:
+        s = self.metrics.snapshot()
+        log.info(
+            "pipeline stopped: %d passes, mean %s ms, RTF %.2f, source lag %s s, "
+            "final latency p50 %s s / p90 %s s, %d utterances, %d backlog drops, "
+            "MT final %s ms, preview %s ms, %d MT failures",
+            s["passes"],
+            s["mean_pass_ms"],
+            s["rtf"],
+            s["source_lag_sec"],
+            s["final_latency_sec"],
+            s["final_latency_p90_sec"],
+            s["utterances"],
+            s["drops"],
+            s["mt_final_ms"],
+            s["mt_preview_ms"],
+            s["mt_failures"],
+        )

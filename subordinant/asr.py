@@ -121,18 +121,78 @@ def prompt_warning(cfg: Config) -> str | None:
     )
 
 
+class ModelLoadError(RuntimeError):
+    """The recognition model could not be fetched or constructed.
+
+    The message is written for the status line: it says what is missing and
+    what to do about it.
+    """
+
+
+def _is_oom(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "out of memory" in text or "cuda_error_out_of_memory" in text
+
+
 def _snapshot(model_id: str) -> Path | None:
-    """The local directory holding model_id, downloading it if need be."""
+    """The local directory holding model_id, downloading it if need be.
+
+    The cache is tried first with the network forbidden. A model that is
+    already installed is then found without a single request leaving the
+    machine, which is both what "works offline" has to mean and a second or
+    two saved on every start.
+    """
     path = Path(model_id)
     if path.is_dir():
         return path
-    try:
-        from huggingface_hub import snapshot_download
+    from huggingface_hub import snapshot_download
 
+    try:
+        return Path(snapshot_download(model_id, local_files_only=True))
+    except Exception:  # noqa: BLE001 - not cached; fall through to the network
+        pass
+    try:
         return Path(snapshot_download(model_id))
     except Exception as exc:  # noqa: BLE001 - network, auth and disk all land here
         log.warning("could not resolve %s: %s", model_id, exc)
         return None
+
+
+def is_cached(model: str) -> bool:
+    """Is this recognition model already on disk?"""
+    if Path(model).is_dir():
+        return True
+    from faster_whisper.utils import download_model
+
+    try:
+        download_model(model, local_files_only=True)
+        return True
+    except Exception:  # noqa: BLE001 - anything else means "not usable offline"
+        return False
+
+
+def resolve_model(model: str) -> str:
+    """Local path of a recognition model, fetching it only if it is absent."""
+    if Path(model).is_dir():
+        return model
+    from faster_whisper.utils import download_model
+
+    try:
+        return download_model(model, local_files_only=True)
+    except ValueError as exc:
+        raise ModelLoadError(str(exc)) from exc
+    except Exception:  # noqa: BLE001 - not cached yet
+        pass
+    try:
+        return download_model(model)
+    except ValueError as exc:
+        raise ModelLoadError(str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - network, disk, auth
+        raise ModelLoadError(
+            f"The recognition model {model} is not installed and could not be "
+            f"downloaded ({type(exc).__name__}). Connect to the internet once "
+            "so it can be fetched, or pick a model that is already installed."
+        ) from exc
 
 
 def repair_tokenizer(model_id: str) -> None:
@@ -239,30 +299,108 @@ class Word:
 class Transcriber:
     def __init__(self, cfg: Config):
         self.cfg = cfg
+        # Things that happened while loading that the user should be told:
+        # a fallback to 8-bit weights, to the CPU, to a smaller model. Empty
+        # when everything loaded as asked.
+        self.notes: list[str] = []
         checks = (translate_warning, transcribe_warning, prompt_warning)
         for warning in (check(cfg) for check in checks):
             if warning:
                 log.warning("%s", warning)
-        # Both must precede construction: the heads are read as the model is
-        # built, and a bad set faults the process instead of raising, while
-        # the tokenizer is resolved once and kept for the model's lifetime.
-        repair_alignment_heads(cfg.model)
-        repair_tokenizer(cfg.model)
+
         t0 = time.perf_counter()
-        try:
-            self.model = WhisperModel(
-                cfg.model, device=cfg.device, compute_type=cfg.compute_type
-            )
-            self.device = cfg.device
-        except (RuntimeError, ValueError) as exc:
-            if cfg.device != "cuda":
+        last_error: BaseException | None = None
+        for device, compute_type, model_id in self._attempts(cfg):
+            try:
+                # Both repairs must precede construction: the heads are read
+                # as the model is built, and a bad set faults the process
+                # instead of raising, while the tokenizer is resolved once and
+                # kept for the model's lifetime.
+                repair_alignment_heads(model_id)
+                repair_tokenizer(model_id)
+                path = resolve_model(model_id)
+                self.model = WhisperModel(
+                    path, device=device, compute_type=compute_type
+                )
+            except ModelLoadError:
                 raise
-            log.warning("CUDA unavailable (%s); falling back to CPU int8", exc)
-            self.model = WhisperModel(cfg.model, device="cpu", compute_type="int8")
-            self.device = "cpu"
+            except Exception as exc:  # noqa: BLE001 - CUDA, cuDNN, memory, bad files
+                last_error = exc
+                log.warning(
+                    "could not load %s on %s (%s): %s",
+                    model_id,
+                    device,
+                    compute_type,
+                    exc,
+                )
+                continue
+            self.device = device
+            self.compute_type = compute_type
+            self.model_id = model_id
+            break
+        else:
+            raise ModelLoadError(
+                f"Could not load the recognition model {cfg.model}: {last_error}"
+            )
+
+        if self.device != "cuda" and cfg.device != "cpu":
+            reason = (
+                "the GPU ran out of memory"
+                if last_error is not None and _is_oom(last_error)
+                else "the GPU could not be used"
+            )
+            swapped = (
+                f" with the smaller {self.model_id} model"
+                if self.model_id != cfg.model
+                else ""
+            )
+            self.notes.append(
+                f"Running on the CPU{swapped} because {reason}. Expect later "
+                "captions and lower accuracy; see the log for the cause."
+            )
+        elif self.compute_type != self._wanted_compute(cfg) and self.device == "cuda":
+            self.notes.append(
+                "Loaded the recognition model with 8-bit weights because the "
+                "GPU did not have room for the full-precision ones."
+            )
         log.info(
-            "loaded %s on %s in %.1fs", cfg.model, self.device, time.perf_counter() - t0
+            "loaded %s on %s (%s) in %.1fs",
+            self.model_id,
+            self.device,
+            self.compute_type,
+            time.perf_counter() - t0,
         )
+
+    @staticmethod
+    def _wanted_compute(cfg: Config) -> str:
+        if cfg.vram_saver and cfg.compute_type in ("float16", "float32", "auto"):
+            return "int8_float16"
+        return cfg.compute_type
+
+    @classmethod
+    def _attempts(cls, cfg: Config) -> list[tuple[str, str, str]]:
+        """(device, compute type, model) to try, best first.
+
+        On the GPU the only thing to give up is precision: the same model in
+        8-bit weights needs about half the memory, which is usually the
+        difference when something else already has the card. Giving up the
+        GPU also means giving up the model - the ones tuned for it manage a
+        pass every several seconds on a CPU - unless the user asked for the
+        CPU outright, in which case their model choice stands.
+        """
+        attempts: list[tuple[str, str, str]] = []
+        if cfg.device in ("auto", "cuda"):
+            wanted = cls._wanted_compute(cfg)
+            attempts.append(("cuda", wanted, cfg.model))
+            if wanted != "int8_float16":
+                attempts.append(("cuda", "int8_float16", cfg.model))
+        if cfg.device == "cpu":
+            compute = cfg.compute_type if cfg.compute_type in ("int8", "float32") else "int8"
+            attempts.append(("cpu", compute, cfg.model))
+        elif cfg.device == "auto":
+            heavy = any(tag in cfg.model.lower() for tag in ("large", "kotoba", "anime", "turbo"))
+            attempts.append(("cpu", "int8", cfg.cpu_model if heavy else cfg.model))
+        return attempts
 
     def warmup(self) -> float:
         """Run one throwaway inference so the first caption isn't the slow one."""
@@ -301,7 +439,7 @@ class Transcriber:
         """
         if not self.cfg.initial_prompt:
             return None
-        if any(m in self.cfg.model.lower() for m in _PROMPT_HOSTILE):
+        if any(m in self.model_id.lower() for m in _PROMPT_HOSTILE):
             return None
         return self.cfg.initial_prompt
 
@@ -317,7 +455,11 @@ class Transcriber:
             beam_size=self.cfg.beam_size,
             no_repeat_ngram_size=self.cfg.no_repeat_ngram_size,
             word_timestamps=True,
-            vad_filter=self.cfg.vad_filter,
+            # Off when the stream is already gated by the neural VAD: the
+            # same detector would score the same audio a second time, on the
+            # CPU, every pass. On with the energy gate, where it is the only
+            # thing standing between music and the decoder.
+            vad_filter=self.cfg.vad_filter or self.cfg.vad_mode != "silero",
             initial_prompt=self._asr_prompt(),
             # Streaming re-transcribes an overlapping buffer every pass. Feeding
             # the previous text back in makes Whisper loop on its own output.
@@ -344,3 +486,14 @@ class Transcriber:
         if whole in _HALLUCINATIONS:
             return []
         return words
+
+    def close(self) -> None:
+        """Release the model's memory now rather than at garbage collection."""
+        model = getattr(self, "model", None)
+        if model is None:
+            return
+        try:
+            model.model.unload_model()
+        except Exception:  # noqa: BLE001 - best effort; dropping the ref frees it too
+            log.debug("unload_model failed", exc_info=True)
+        self.model = None

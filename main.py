@@ -1,9 +1,10 @@
-"""SubOrdinant - live captions for Windows system audio.
+"""SubOrdinant - live Japanese-to-English captions for Windows system audio.
 
     .venv\\Scripts\\pythonw.exe main.py
 
-The overlay is click-through and has no taskbar entry, so the tray icon is the
-only way to control or quit it.
+Opens the main window. Pick a profile, press Start, play something in
+Japanese: the English appears in the window and, if the overlay is on, over
+the screen. Everything runs on this machine.
 """
 
 from __future__ import annotations
@@ -64,99 +65,43 @@ else:
 # Progress bars have nowhere useful to go in a windowed build, and writing them
 # to the crash log would bury the tracebacks it exists for.
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+# The Hub client phones home with usage statistics unless told not to. Nothing
+# about this app should leave the machine except a model download the user
+# asked for.
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
 # Imported before PyQt6 on purpose: the package __init__ pins the system MSVC
 # runtime, which has to happen before Qt puts its own copy on the search path.
-from subordinant import logsetup
-from subordinant.config import TRANSCRIBERS, Config
-
-from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal  # noqa: E402
-from PyQt6.QtWidgets import (  # noqa: E402
-    QApplication,
-    QMenu,
-    QMessageBox,
-    QSystemTrayIcon,
-)
-
-from subordinant.asr import prompt_warning, translate_warning  # noqa: E402
-from subordinant.overlay import CaptionOverlay, app_icon  # noqa: E402
-from subordinant.pipeline import CaptionPipeline  # noqa: E402
-from subordinant.window import ENGINE_TRANSCRIBER, ENGINES, TranscriptWindow  # noqa: E402
+from subordinant import logsetup  # noqa: E402
+from subordinant.config import Config  # noqa: E402
+from subordinant.profiles import PROFILES, apply_profile  # noqa: E402
 
 log = logging.getLogger("subordinant")
 
-
-class Bridge(QObject):
-    """Carries pipeline output from the worker thread to the Qt main thread.
-
-    Signals emitted across threads are delivered queued, which is what makes it
-    safe for the worker to call these directly.
-    """
-
-    caption = pyqtSignal(str, str)
-    status = pyqtSignal(str)
-    # The trailing int is the speaker id, diarize.UNKNOWN when unlabelled. Qt
-    # signals need a concrete type, which is why it is a sentinel int rather
-    # than an optional.
-    translation = pyqtSignal(str, str, int)
-    commit = pyqtSignal(str, int)
-    # English for speech still in progress; replaces itself every pass.
-    live_translation = pyqtSignal(str)
+_instance_mutex = None  # held for the life of the process
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="SubOrdinant", description=__doc__)
-    parser.add_argument("--model", help="faster-whisper model name or local path")
-    parser.add_argument("--device", choices=["cuda", "cpu"], help="inference device")
+    parser.add_argument(
+        "--profile",
+        choices=sorted(PROFILES),
+        help="start from this performance profile instead of the saved settings",
+    )
+    parser.add_argument(
+        "--start", action="store_true", help="begin translating immediately"
+    )
+    parser.add_argument(
+        "--minimized", action="store_true", help="start in the tray without a window"
+    )
+    parser.add_argument("--model", help="recognition model name or local path")
+    parser.add_argument("--device", choices=["auto", "cuda", "cpu"], help="inference device")
     parser.add_argument("--compute-type", help="e.g. float16, int8_float16, int8")
-    parser.add_argument("--language", help="spoken language code, e.g. en")
-    parser.add_argument(
-        "--task",
-        choices=["transcribe", "translate"],
-        help="translate outputs English for any source language",
-    )
-    parser.add_argument(
-        "--mt",
-        dest="mt_enabled",
-        action="store_true",
-        default=None,  # None so it cannot override a saved config's value
-        help="translate finished utterances with a dedicated NMT model instead "
-        "of Whisper's --task translate; shows source text and English",
-    )
-    parser.add_argument("--mt-model", dest="mt_model", help="NMT model to use")
-    parser.add_argument(
-        "--mt-backend",
-        dest="mt_backend",
-        choices=["ct2", "llm"],
-        help="ct2 runs the NMT model in --mt-model; llm runs --llm-model over "
-        "Ollama, which is slower per line but sees the preceding ones",
-    )
-    parser.add_argument(
-        "--llm-model",
-        dest="llm_model",
-        help="Ollama tag for --mt-backend llm, e.g. qwen3:4b-instruct or "
-        "hf.co/sugoitoolkit/Sugoi-14B-Ultra-GGUF:Q4_K_M. Use "
-        "an instruct tag: a reasoning model deliberates instead of "
-        "translating, and the deliberation lands in the captions",
-    )
-    parser.add_argument(
-        "--llm-endpoint", dest="llm_endpoint", help="Ollama base URL"
-    )
-    parser.add_argument(
-        "--speakers",
-        dest="diarize_enabled",
-        action="store_true",
-        default=None,  # None so it cannot override a saved config's value
-        help="label each line with who said it, and split lines when the "
-        "speaking voice changes",
-    )
     parser.add_argument(
         "--initial-prompt",
         dest="initial_prompt",
-        help="names and terms to expect, so Whisper stops mishearing them; "
-        "keep it short or it starts reciting the prompt",
+        help="names and terms to expect, e.g. '天音 = Amane, ホロライブ'",
     )
-    parser.add_argument("--font-size", type=int)
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument(
         "--selftest",
@@ -174,11 +119,19 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def build_config(args: argparse.Namespace) -> Config:
     cfg = Config.load()
+    if not cfg.restore_last_config and not args.profile:
+        # Appearance and window settings were loaded and are kept; the engine
+        # goes back to the default profile.
+        apply_profile(cfg, "balanced")
+    if args.profile:
+        apply_profile(cfg, args.profile)
     known = {f.name for f in fields(Config)}
     for key, value in vars(args).items():
-        if value is None or key not in known:
+        if value is None or key not in known or key == "profile":
             continue
         setattr(cfg, key, value)
+    if args.start:
+        cfg.autostart_translation = True
     return cfg
 
 
@@ -217,21 +170,39 @@ def selftest(cfg: Config) -> int:
     report("cuda dirs", lambda: "registered" if cuda._done else "not registered")
     report("onnxruntime", lambda: cuda.preload_onnxruntime() or "(already pinned)")
 
+    def load_vad() -> str:
+        import numpy as np
+
+        from subordinant.vad import VAD_FRAME, SileroVAD
+
+        probs = SileroVAD().probabilities(np.zeros((4, VAD_FRAME), dtype=np.float32))
+        return f"silero ok, silence scores {float(probs.max()):.2f}"
+
+    report("voice detector", load_vad)
+
     def load_asr() -> str:
         from subordinant.asr import Transcriber
 
-        Transcriber(cfg).warmup()
-        return f"{cfg.model} on {cfg.device}"
+        asr = Transcriber(cfg)
+        asr.warmup()
+        return f"{asr.model_id} on {asr.device} ({asr.compute_type})"
 
-    report("whisper", load_asr)
+    report("recognition", load_asr)
 
     if cfg.mt_enabled:
-        def load_mt() -> str:
-            from subordinant.translate import build_translator
+        def load_nmt() -> str:
+            from subordinant.translate import Translator
 
-            return build_translator(cfg).translate("これはテストです。") or "(empty)"
+            return Translator(cfg).translate("これはテストです。") or "(empty)"
 
-        report("translation", load_mt)
+        report("translation (built-in)", load_nmt)
+        if cfg.mt_backend == "llm":
+            def load_llm() -> str:
+                from subordinant.llm_translate import LLMTranslator
+
+                return LLMTranslator(cfg).translate("これはテストです。") or "(empty)"
+
+            report(f"translation ({cfg.llm_model})", load_llm)
 
     if cfg.diarize_enabled:
         def load_spk() -> str:
@@ -253,13 +224,21 @@ def selftest(cfg: Config) -> int:
     def open_audio() -> str:
         from subordinant.audio import LoopbackCapture
 
-        capture = LoopbackCapture(frames_per_buffer=cfg.frames_per_buffer)
+        capture = LoopbackCapture(frames_per_buffer=cfg.frames_per_buffer, watch_device=False)
         capture.start()
         name = capture.device_name
         capture.stop()
         return name
 
     report("audio", open_audio)
+
+    def gpu() -> str:
+        from subordinant.metrics import gpu_memory
+
+        info = gpu_memory()
+        return "no NVIDIA GPU visible" if info is None else f"{info[0]} / {info[1]} MiB in use"
+
+    report("gpu memory", gpu)
 
     print("PASS" if ok else "FAIL", flush=True)
     return 0 if ok else 1
@@ -286,6 +265,25 @@ def _set_taskbar_identity() -> None:
         log.debug("could not set AppUserModelID", exc_info=True)
 
 
+def _already_running() -> bool:
+    """Is another copy of the app running in this session?
+
+    Two copies would both capture the same audio and both draw captions over
+    the screen. With "launch on startup" on, opening the app from the Start
+    menu is exactly how a second one would come to exist.
+    """
+    global _instance_mutex
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateMutexW.restype = ctypes.c_void_p
+        _instance_mutex = kernel32.CreateMutexW(None, False, "Local\\SubOrdinant.SingleInstance")
+        return kernel32.GetLastError() == 183  # ERROR_ALREADY_EXISTS
+    except Exception:  # noqa: BLE001 - if this cannot be checked, just run
+        return False
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
     logsetup.configure(args.verbose)
@@ -295,254 +293,45 @@ def main(argv: list[str] | None = None) -> int:
     if args.selftest:
         return selftest(cfg)
 
+    # Qt is imported here rather than at the top so that --selftest and
+    # --save-config work on a machine with no display.
+    from PyQt6.QtWidgets import QApplication, QMessageBox
+
+    from subordinant.overlay import app_icon
+    from subordinant.ui.controller import Controller
+
     _set_taskbar_identity()
     app = QApplication(sys.argv[:1])
-    # The overlay hides itself when idle; that must not end the process.
+    app.setApplicationName("SubOrdinant")
+    # Closing the window to the tray, or the overlay hiding itself when idle,
+    # must not end the process.
     app.setQuitOnLastWindowClosed(False)
-    icon = app_icon()
-    # Inherited by every window, so the transcript window and its dialogs do
-    # not each have to set it.
-    app.setWindowIcon(icon)
+    # Inherited by every window and dialog.
+    app.setWindowIcon(app_icon())
 
-    window = TranscriptWindow(cfg)
-    bridge = Bridge()
-    bridge.caption.connect(window.set_live, Qt.ConnectionType.QueuedConnection)
-    bridge.translation.connect(
-        window.add_utterance, Qt.ConnectionType.QueuedConnection
-    )
-    bridge.live_translation.connect(
-        window.set_live_translation, Qt.ConnectionType.QueuedConnection
-    )
-    # Without MT there are no utterance pairs, so committed text is the only
-    # thing that would ever reach the transcript.
-    if not cfg.mt_enabled:
-        bridge.commit.connect(
-            window.add_source_only, Qt.ConnectionType.QueuedConnection
+    if _already_running():
+        QMessageBox.information(
+            None,
+            "SubOrdinant",
+            "SubOrdinant is already running. Look for its icon in the system tray.",
         )
+        return 0
 
-    # Built whether or not it is switched on: an unshown QWidget costs nothing,
-    # and constructing it up front is what lets the toolbar toggle take effect
-    # without a restart. What actually turns it off is disconnecting it - a
-    # merely hidden overlay would still run its full relayout-and-repaint on
-    # every caption, which is the cost the toggle exists to avoid.
-    overlay = CaptionOverlay(cfg)
-
-    def set_overlay_enabled(on: bool) -> None:
-        cfg.overlay_enabled = on  # saved on exit, so the choice survives a restart
-        if on:
-            bridge.caption.connect(
-                overlay.set_caption, Qt.ConnectionType.QueuedConnection
-            )
-            bridge.translation.connect(
-                overlay.set_translation, Qt.ConnectionType.QueuedConnection
-            )
-            bridge.live_translation.connect(
-                overlay.set_live_translation, Qt.ConnectionType.QueuedConnection
-            )
-            return
-        try:
-            bridge.caption.disconnect(overlay.set_caption)
-            bridge.translation.disconnect(overlay.set_translation)
-            bridge.live_translation.disconnect(overlay.set_live_translation)
-        except TypeError:
-            pass  # not connected
-        # Clear as well as hide: otherwise switching back on redisplays the line
-        # that was on screen when it went off, until the next caption arrives.
-        overlay.clear()
-        overlay.hide()
-
-    window.overlay_box.toggled.connect(set_overlay_enabled)
-    # apply_settings drives the checkbox, whose toggled signal then runs
-    # set_overlay_enabled - but only if the value changes from the unchecked
-    # default, so call it directly rather than relying on that.
-    set_overlay_enabled(cfg.overlay_enabled)
-
-    window.apply_settings(
-        cfg.window_opacity,
-        cfg.window_on_top,
-        cfg.mt_live_enabled,
-        cfg.overlay_enabled,
+    controller = Controller(
+        app, cfg, start_hidden=args.minimized or cfg.start_minimized
     )
-    window.show()
-
-    if not QSystemTrayIcon.isSystemTrayAvailable():
-        QMessageBox.critical(
-            None, "SubOrdinant", "No system tray available - cannot run without it."
-        )
-        return 1
-
-    tray = QSystemTrayIcon(icon)
-    tray.setToolTip("SubOrdinant - starting...")
-    menu = QMenu()
-    pause_action = menu.addAction("Pause captions")
-    pause_action.setCheckable(True)
-    menu.addSeparator()
-    quit_action = menu.addAction("Quit")
-    tray.setContextMenu(menu)
-    tray.show()
-
-    def build_pipeline() -> CaptionPipeline:
-        return CaptionPipeline(
-            cfg,
-            on_caption=bridge.caption.emit,
-            on_status=bridge.status.emit,
-            on_translation=bridge.translation.emit,
-            on_commit=bridge.commit.emit,
-            on_live_translation=bridge.live_translation.emit,
-        )
-
-    pipeline = build_pipeline()
-    window.load_settings(cfg)
-
-    def apply_settings() -> None:
-        """Rebuild the pipeline for a new language or translation engine.
-
-        Both change which models are loaded, and those are constructed once
-        inside the worker, so the pipeline is torn down and replaced rather than
-        mutated underneath a running thread.
-        """
-        nonlocal pipeline
-        (
-            language,
-            transcriber,
-            beam,
-            engine,
-            diarize,
-            speaker_cap,
-            prompt,
-        ) = window.pending_settings()
-        cfg.language = language
-        cfg.diarize_enabled = diarize
-        cfg.diarize_max_speakers = speaker_cap
-        cfg.initial_prompt = prompt
-        # Transcriber first: an engine that owns the transcription model has the
-        # last word on it, which is the order the GUI shows.
-        for key, value in TRANSCRIBERS[transcriber].items():
-            setattr(cfg, key, value)
-        for key, value in ENGINES[engine].items():
-            setattr(cfg, key, value)
-        forced = ENGINE_TRANSCRIBER.get(engine)
-        if forced:
-            for key, value in TRANSCRIBERS[forced].items():
-                setattr(cfg, key, value)
-        # Last, so it overrides the beam whichever transcriber entry won above.
-        # 0 means the picker is on Auto and the model's own default stands.
-        if beam:
-            cfg.beam_size = beam
-
-        window.set_status("applying settings...")
-        window.apply_button.setEnabled(False)
-        pipeline.stop()
-
-        # commit only feeds the transcript when nothing else will, so the
-        # connection has to follow whether MT is now on.
-        try:
-            bridge.commit.disconnect(window.add_source_only)
-        except TypeError:
-            pass  # not connected
-        if not cfg.mt_enabled:
-            bridge.commit.connect(
-                window.add_source_only, Qt.ConnectionType.QueuedConnection
-            )
-
-        pipeline = build_pipeline()
-        pipeline.set_paused(window.pause_box.isChecked())
-        pipeline.start()
-        window.show_applied()
-
-    window.apply_button.clicked.connect(apply_settings)
-
-    def on_status(msg: str) -> None:
-        log.info("status: %s", msg)
-        tray.setToolTip(f"SubOrdinant - {msg}")
-        window.set_status(msg)
-        if msg.startswith("error:"):
-            tray.showMessage("SubOrdinant", msg, QSystemTrayIcon.MessageIcon.Critical)
-
-    bridge.status.connect(on_status, Qt.ConnectionType.QueuedConnection)
-
-    # Pause has two controls - the tray item and the window checkbox - and each
-    # one's toggled signal would drive the other straight back into here. Block
-    # the signals while syncing rather than relying on the values converging.
-    syncing = False
-
-    def on_pause(checked: bool) -> None:
-        nonlocal syncing
-        if syncing:
-            return
-        syncing = True
-        try:
-            pipeline.set_paused(checked)
-            pause_action.setText("Resume captions" if checked else "Pause captions")
-            pause_action.setChecked(checked)
-            window.pause_box.setChecked(checked)
-        finally:
-            syncing = False
-        if checked:
-            # Harmless when the overlay is switched off - it is already hidden.
-            overlay.clear()
-            overlay.hide()
-        tray.setToolTip("SubOrdinant - paused" if checked else "SubOrdinant - listening")
-
-    pause_action.toggled.connect(on_pause)
-    window.pause_box.toggled.connect(on_pause)
-
-    def on_live_preview(enabled: bool) -> None:
-        # Read fresh on every pass by the worker, so no restart is needed. A
-        # bool assignment is atomic under the GIL; the worst case is that one
-        # in-flight pass uses the previous value.
-        cfg.mt_live_enabled = enabled
-        if not enabled:
-            # _flush_live returns early once this is off, so it never emits the
-            # empty preview that would clear these. Do it here or the last guess
-            # stays on screen for the rest of the session.
-            window.set_live_translation("")
-            overlay.set_live_translation("")
-
-    window.live_preview_box.toggled.connect(on_live_preview)
-
-    def shutdown() -> None:
-        # Persist what the window's controls were left on, so the next launch
-        # comes back the way it was put down.
-        cfg.window_opacity, cfg.window_on_top = window.current_settings()
-        try:
-            cfg.save()
-        except OSError as exc:  # noqa: BLE001 - never block quitting on this
-            log.warning("could not save window settings: %s", exc)
-        pipeline.stop()
-        tray.hide()
-        window.close()
-        app.quit()
-
-    quit_action.triggered.connect(shutdown)
-    # Resolved at call time, not bound now: applying settings replaces the
-    # pipeline object, and binding the method here would leave this stopping a
-    # pipeline that is already dead while the live one keeps its thread.
-    app.aboutToQuit.connect(lambda: pipeline.stop())
+    if controller.tray is None and (args.minimized or cfg.start_minimized):
+        # Nothing to restore the window from, so do not hide it.
+        controller.show_window()
 
     # Qt's event loop swallows SIGINT unless Python gets a chance to run.
-    signal.signal(signal.SIGINT, lambda *_: shutdown())
+    signal.signal(signal.SIGINT, lambda *_: controller.quit())
+    from PyQt6.QtCore import QTimer
+
     heartbeat = QTimer()
-    heartbeat.start(200)
+    heartbeat.start(250)
     heartbeat.timeout.connect(lambda: None)
 
-    pipeline.start()
-    # Windows shows one balloon at a time, so these are exclusive: the greeting
-    # would otherwise replace the warning a second after it appeared. Raised
-    # here rather than from the pipeline because both are knowable from the
-    # config alone, before the model load spends minutes on it.
-    mismatch = translate_warning(cfg) or prompt_warning(cfg)
-    if mismatch:
-        tray.showMessage(
-            "SubOrdinant", mismatch, QSystemTrayIcon.MessageIcon.Warning, 10000
-        )
-    else:
-        tray.showMessage(
-            "SubOrdinant",
-            "Listening to system audio. Quit from this tray icon.",
-            QSystemTrayIcon.MessageIcon.Information,
-            3000,
-        )
     return app.exec()
 
 

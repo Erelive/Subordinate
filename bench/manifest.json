@@ -1,0 +1,181 @@
+{
+  "_comment": [
+    "Recipe for the benchmark audio. Nothing here is audio: every clip is addressed by",
+    "(dataset, parquet file, row), so `python -m bench.build_samples` rebuilds the same",
+    "WAVs anywhere. The Japanese is the dataset's own transcript. The English references",
+    "were written for this repo and are deliberately plain - they exist so translation",
+    "engines can be ranked against each other on the same input, not as gold standard."
+  ],
+  "sources": {
+    "jsut": {
+      "repo": "japanese-asr/ja_asr.jsut_basic5000",
+      "file": "data/test-00000-of-00004.parquet",
+      "about": "JSUT basic5000: one female speaker, studio, read sentences"
+    },
+    "cv": {
+      "repo": "japanese-asr/ja_asr.common_voice_8_0",
+      "file": "data/test-00000-of-00001.parquet",
+      "about": "Common Voice 8 ja (CC0): many speakers, consumer microphones"
+    },
+    "reazon": {
+      "repo": "japanese-asr/ja_asr.reazonspeech_test",
+      "file": "data/test-00000-of-00002.parquet",
+      "about": "ReazonSpeech test: Japanese TV broadcast, spontaneous and scripted"
+    },
+    "anime": {
+      "repo": "joujiboi/japanese-anime-speech",
+      "file": "data/train-00000-of-00021.parquet",
+      "about": "Japanese Anime Speech v1 (CC0): visual-novel voice acting, casual register"
+    }
+  },
+  "clips": {
+    "jsut_0": {"source": "jsut", "row": 0, "ja": "水をマレーシアから買わなくてはならないのです。", "en": "We have to buy water from Malaysia."},
+    "jsut_1": {"source": "jsut", "row": 1, "ja": "木曜日、停戦会談は、何の進展もないまま終了しました。", "en": "On Thursday, the ceasefire talks ended without any progress."},
+    "jsut_2": {"source": "jsut", "row": 2, "ja": "上院議員は私がデータをゆがめたと告発した。", "en": "The senator accused me of distorting the data."},
+    "jsut_3": {"source": "jsut", "row": 3, "ja": "１週間して、そのニュースは本当になった。", "en": "A week later, the news turned out to be true."},
+    "jsut_4": {"source": "jsut", "row": 4, "ja": "血圧は、健康のパロメーターとして重要である。", "en": "Blood pressure is important as a barometer of health."},
+    "jsut_5": {"source": "jsut", "row": 5, "ja": "週に四回、フランスの授業があります。", "en": "I have French class four times a week."},
+    "jsut_6": {"source": "jsut", "row": 6, "ja": "許可書がなければここへは入れない。", "en": "You can't enter here without a permit."},
+    "jsut_7": {"source": "jsut", "row": 7, "ja": "大声で泣きながら、女の子は母親を探していた。", "en": "Crying loudly, the girl was looking for her mother."},
+    "jsut_8": {"source": "jsut", "row": 8, "ja": "無罪の人々は、もちろん放免された。", "en": "The innocent people were, of course, released."},
+    "jsut_9": {"source": "jsut", "row": 9, "ja": "末期試験に備えて、本当に気合いを入れて勉強しなきゃ。", "en": "I really have to buckle down and study for the final exams."},
+    "jsut_10": {"source": "jsut", "row": 10, "ja": "木曽川は、しばしば日本のライン川と呼ばれている。", "en": "The Kiso River is often called the Rhine of Japan."},
+    "jsut_11": {"source": "jsut", "row": 11, "ja": "溺れかかっていた乗客は、すべて救助された。", "en": "All the passengers who were drowning were rescued."},
+
+    "rz_0": {"source": "reazon", "row": 0, "ja": "ちょっと見ていきましょうか。", "en": "Shall we take a look?"},
+    "rz_2": {"source": "reazon", "row": 2, "ja": "大橋さんはやっぱり大変でしたか？", "en": "Was it tough for you after all, Ohashi-san?"},
+    "rz_13": {"source": "reazon", "row": 13, "ja": "けさの東京、風はなさそうですけどね、体感はどうでしょうか、近藤さん。", "en": "It doesn't look windy in Tokyo this morning, but how does it actually feel out there, Kondo-san?"},
+    "rz_15": {"source": "reazon", "row": 15, "ja": "でも一方で、こういう知識をしっかり整頓しておいて、自分が感染させないかなとか、どうやったら感染しないようになるかなということを頭に入れておくということが、こういう検定を通して大切なのかもしれないですね。", "en": "But on the other hand, keeping this kind of knowledge well organized, and keeping in mind things like whether you might infect someone or how you can avoid getting infected, may be what really matters about taking a test like this."},
+    "rz_31": {"source": "reazon", "row": 31, "ja": "ありますし、例えば女優さんとかと写真撮る時にレタッチしてくださいと言われて分かりましたと言って持ち帰って送ったら、返信が来てちょっと加工しすぎなので戻してもらっていいですかって。", "en": "That happens, and for example, when I shoot photos with actresses, they ask me to retouch them, so I say sure, take them home and send them over, and then I get a reply saying it's a bit over-edited, so could I change it back?"},
+    "rz_35": {"source": "reazon", "row": 35, "ja": "それが一番大事だと思います。", "en": "I think that's the most important thing."},
+    "rz_47": {"source": "reazon", "row": 47, "ja": "これスマホの懐中電灯モードです。", "en": "This is the flashlight mode on my smartphone."},
+    "rz_52": {"source": "reazon", "row": 52, "ja": "まあこんな感じで。", "en": "Well, something like this."},
+    "rz_56": {"source": "reazon", "row": 56, "ja": "やっぱ隆さんの「一緒に写真撮りましょうよ」って言われた時のあの隆さんの顔な。", "en": "You know, that look on Takashi-san's face when he was told, \"Let's take a picture together.\""},
+    "rz_62": {"source": "reazon", "row": 62, "ja": "僕、聞いたんですけどハワイに行った時に時差ボケで海に行ったりすると紫外線に当たったりすると余計に焼けやすいって聞いたんですけど本当ですか？", "en": "I heard that when you go to Hawaii, if you go to the beach while jet-lagged and get exposed to UV rays, you burn even more easily. Is that true?"},
+    "rz_64": {"source": "reazon", "row": 64, "ja": "かなり広い範囲でその爆発音というのは聞かれているようです。", "en": "It seems the sound of the explosion was heard over quite a wide area."},
+    "rz_67": {"source": "reazon", "row": 67, "ja": "だからどんな事にも耐えられます。", "en": "So I can endure anything."},
+    "rz_68": {"source": "reazon", "row": 68, "ja": "本当ですよね。", "en": "That's so true."},
+    "rz_42": {"source": "reazon", "row": 42, "ja": "あじゃあいいです。", "en": "Oh, never mind then."},
+    "rz_61": {"source": "reazon", "row": 61, "ja": "俺もそう思う。", "en": "I think so too."},
+
+    "rz_11": {"source": "reazon", "row": 11, "ja": "住民によると過去にも、似たような訪問があったといいます。", "en": "According to residents, there have been similar visits in the past."},
+    "rz_19": {"source": "reazon", "row": 19, "ja": "消費も少しずつ回復の兆しが見える中、今年の日本経済はどうなるのか。", "en": "With consumption gradually showing signs of recovery, what will happen to the Japanese economy this year?"},
+    "rz_24": {"source": "reazon", "row": 24, "ja": "台風や大雨に関する情報はＮＨＫニュース・防災アプリでもお伝えしています。", "en": "Information on typhoons and heavy rain is also available on the NHK News and Disaster Prevention app."},
+    "rz_39": {"source": "reazon", "row": 39, "ja": "昨日、自分好みに画面をカスタマイズできることで人気のＴｗｉｔｔｅｒ閲覧アプリ、ｆｅａｔｈｅｒが使用できなくなったと発表されました。", "en": "Yesterday, it was announced that feather, a Twitter client popular for letting users customize the screen to their liking, can no longer be used."},
+    "rz_48": {"source": "reazon", "row": 48, "ja": "対策強化に向けて、法制審議会の部会は、処罰する罪の法定刑の上限を引き上げる要綱案をまとめました。", "en": "To strengthen countermeasures, a subcommittee of the Legislative Council has compiled a draft outline that would raise the maximum statutory penalty for the offense."},
+    "rz_58": {"source": "reazon", "row": 58, "ja": "昨日、楓の紅葉の発表がありました。", "en": "Yesterday, the autumn colors of the maple trees were announced."},
+    "rz_65": {"source": "reazon", "row": 65, "ja": "男性は、警察に通報し病院に搬送されました。", "en": "The man called the police and was taken to the hospital."},
+    "rz_66": {"source": "reazon", "row": 66, "ja": "オーストラリアの新規感染者数がおととい今年に入って最多となる４４人の感染が確認されました。", "en": "In Australia, 44 new infections were confirmed the day before yesterday, the highest number so far this year."},
+
+    "an_3": {"source": "anime", "row": 3, "ja": "って、そんなことないか。キンセーさんはそんなに若くないもんね。でも、ホント、よく似てる", "en": "Wait, no, that can't be. Kinsei-san isn't that young, after all. But really, you look just like him."},
+    "an_9": {"source": "anime", "row": 9, "ja": "ごめんなさい。名前と顔は何となく覚えてるんだけど、それ以外はよく思い出せないみたい", "en": "I'm sorry. I kind of remember names and faces, but I can't seem to recall much else."},
+    "an_14": {"source": "anime", "row": 14, "ja": "ひょっとして、これって記憶喪失？", "en": "Could this be amnesia, by any chance?"},
+    "an_17": {"source": "anime", "row": 17, "ja": "わたし、なんで何にも覚えてないのかなぁ？", "en": "I wonder why I don't remember anything at all."},
+    "an_23": {"source": "anime", "row": 23, "ja": "こんな立派なマンションに住んでるんだね。えっと…何さん、だっけ？", "en": "So you live in such a fancy apartment. Um... what was your name again?"},
+    "an_28": {"source": "anime", "row": 28, "ja": "そうなの？それはすごいねぇ。っていうか、リシアちゃんはお嬢様なの？メイドさんを連れてるけど", "en": "Really? That's amazing. Wait, are you a rich young lady, Lisia-chan? You've got a maid with you."},
+    "an_34": {"source": "anime", "row": 34, "ja": "うん。そうさせてもらいます。っていうか、十分リラックスしてますよ。白玉ちゃんも可愛いし", "en": "Okay, I'll do that. Actually, I'm already plenty relaxed. And Shiratama-chan is cute, too."},
+    "an_38": {"source": "anime", "row": 38, "ja": "何をしてたのって言われても。ごめんね、何にも覚えてないんだ。そもそも、本当に七年経ったのかどうかもわかんないし", "en": "Even if you ask me what I was doing... Sorry, I don't remember anything. I don't even know if seven years have really passed in the first place."},
+    "an_44": {"source": "anime", "row": 44, "ja": "そりゃね。こんなに可愛くて一生懸命な子が嘘つくわけないし", "en": "Well, of course. There's no way a girl this cute and earnest would lie."},
+    "an_50": {"source": "anime", "row": 50, "ja": "そっかぁ。残念、わたしのこと、いろいろ聞こうかと思ったのに", "en": "I see. Too bad, I was hoping to ask all sorts of things about myself."},
+    "an_51": {"source": "anime", "row": 51, "ja": "そうだよね。受け入れるには、時間が必要だもんね", "en": "Yeah, you're right. It takes time to accept it."},
+    "an_52": {"source": "anime", "row": 52, "ja": "うん、また明日。何か思い出したら言うね", "en": "Yeah, see you tomorrow. I'll tell you if I remember anything."},
+    "an_55": {"source": "anime", "row": 55, "ja": "ごめんなさい。ここに来れば、何か思い出すかと思ったんだけど", "en": "I'm sorry. I thought I might remember something if I came here."},
+    "an_62": {"source": "anime", "row": 62, "ja": "なんだかお腹すいちゃったねぇ", "en": "I'm getting kind of hungry."},
+    "an_64": {"source": "anime", "row": 64, "ja": "二人は付き合ってるの？", "en": "Are you two dating?"},
+    "an_65": {"source": "anime", "row": 65, "ja": "あ、やっぱりそうなんだねー。いい雰囲気だもんねー", "en": "Oh, so you are after all. You two do have a nice vibe."},
+    "an_66": {"source": "anime", "row": 66, "ja": "えー、そうなんだー。それはすごーい。最近の若者は凄いねー", "en": "Oh, really? That's amazing. Young people these days are something else."},
+
+    "cv_323": {"source": "cv", "row": 323, "ja": "歯が痛いので、口を開けることができません。", "en": "My tooth hurts, so I can't open my mouth."},
+    "cv_842": {"source": "cv", "row": 842, "ja": "雪の日は出かけません。", "en": "I don't go out on snowy days."},
+    "cv_1015": {"source": "cv", "row": 1015, "ja": "ありがとう。これでけっこうです。", "en": "Thank you. This is fine."},
+    "cv_1361": {"source": "cv", "row": 1361, "ja": "これは日本で売っていない食べ物です。", "en": "This is a food that isn't sold in Japan."},
+    "cv_1880": {"source": "cv", "row": 1880, "ja": "今日の月はとりわけきれいだ", "en": "The moon is especially beautiful today."},
+    "cv_2053": {"source": "cv", "row": 2053, "ja": "この動画、ハプニングをよそおってるけど仕込んでるのがバレバレ", "en": "This video pretends to be an accident, but it's totally obvious that it's staged."},
+    "cv_2745": {"source": "cv", "row": 2745, "ja": "この大学、アメリカ、イギリスどっちだっけ？", "en": "This university, was it in America or England?"},
+    "cv_2918": {"source": "cv", "row": 2918, "ja": "そんな演出意図、誰もわからないよ", "en": "Nobody's going to get that kind of directorial intent."},
+    "cv_3610": {"source": "cv", "row": 3610, "ja": "研究しすぎて普通の人には理解できなくなった", "en": "It's been researched so much that ordinary people can't understand it anymore."},
+    "cv_3956": {"source": "cv", "row": 3956, "ja": "完全にカモじゃねえか", "en": "You're a total sucker, aren't you?"},
+    "cv_4129": {"source": "cv", "row": 4129, "ja": "チャンネルを変えることなく、テレビを見ていた。", "en": "I was watching TV without changing the channel."},
+    "cv_4475": {"source": "cv", "row": 4475, "ja": "コーヒーが飲みたいんじゃなくて、落ちついた場所で休みたいんだよ", "en": "It's not that I want coffee, I just want to rest somewhere quiet."}
+  },
+  "samples": [
+    {
+      "id": "01_slow_clear",
+      "title": "Slow, clearly spoken",
+      "about": "Studio read speech slowed to 0.9x, a full second between sentences.",
+      "tempo": 0.9,
+      "gap": [0.9, 1.1],
+      "items": ["jsut_0", "jsut_1", "jsut_2", "jsut_3", "jsut_4", "jsut_5", "jsut_6", "jsut_7", "jsut_8", "jsut_9", "jsut_10", "jsut_11"]
+    },
+    {
+      "id": "02_conversational",
+      "title": "Normal conversational",
+      "about": "Spontaneous talk from TV broadcasts at natural speed, natural gaps.",
+      "gap": [0.45, 0.8],
+      "items": ["rz_0", "rz_2", "rz_13", "rz_35", "rz_47", "rz_15", "rz_52", "rz_56", "rz_62", "rz_64", "rz_67", "rz_68", "rz_31"]
+    },
+    {
+      "id": "03_fast",
+      "title": "Fast dialogue",
+      "about": "Broadcast and voice-acted lines at 1.3x with barely a breath between them.",
+      "tempo": 1.3,
+      "gap": [0.12, 0.25],
+      "items": ["rz_11", "an_3", "rz_19", "rz_65", "an_9", "rz_24", "rz_58", "an_38", "rz_39", "rz_66", "rz_48"]
+    },
+    {
+      "id": "04_multi_speaker",
+      "title": "Multiple speakers",
+      "about": "A different voice and microphone on nearly every line, quick hand-offs.",
+      "gap": [0.2, 0.45],
+      "items": ["cv_323", "jsut_5", "cv_2053", "an_14", "cv_842", "rz_61", "cv_2745", "cv_1015", "rz_35", "cv_2918", "cv_1361", "an_62", "cv_3610", "cv_4475", "cv_1880", "cv_4129"]
+    },
+    {
+      "id": "05_casual_slang",
+      "title": "Casual speech and slang",
+      "about": "Voice-acted casual register: sentence-final particles, contractions, trailing clauses.",
+      "gap": [0.35, 0.7],
+      "items": ["an_17", "an_14", "an_23", "an_28", "cv_3956", "an_34", "an_44", "an_50", "rz_42", "an_64", "an_65", "an_66", "an_51", "an_55", "an_52", "cv_2053"]
+    },
+    {
+      "id": "06_background_music",
+      "title": "Speech over background music",
+      "about": "The conversational sample again, under continuous music at +8 dB speech-to-music.",
+      "gap": [0.45, 0.8],
+      "music_snr_db": 8.0,
+      "items": ["rz_0", "rz_2", "rz_13", "rz_35", "rz_47", "rz_15", "rz_52", "rz_56", "rz_62", "rz_64", "rz_67", "rz_68", "rz_31"]
+    },
+    {
+      "id": "07_pauses",
+      "title": "Pauses and interruptions",
+      "about": "Mid-sentence pauses, long dead air, and music with nobody talking.",
+      "gap": [0.5, 0.9],
+      "items": [
+        {"silence": 4.0},
+        {"clip": "jsut_1", "split_pause": 0.9},
+        "an_9",
+        {"silence": 6.0},
+        {"clip": "jsut_7", "split_pause": 1.3},
+        "rz_13",
+        {"music": 7.0},
+        {"clip": "jsut_9", "split_pause": 0.7},
+        "an_23",
+        {"silence": 5.0},
+        {"clip": "an_38", "split_pause": 1.0},
+        "rz_67",
+        {"silence": 4.0}
+      ]
+    },
+    {
+      "id": "08_long_continuous",
+      "title": "Long continuous conversation",
+      "about": "Two and a half minutes with no gap long enough to count as a pause.",
+      "gap": [0.18, 0.33],
+      "items": [
+        "rz_0", "rz_2", "an_17", "rz_13", "cv_323", "an_23", "rz_35", "jsut_2", "an_28", "rz_47",
+        "cv_2053", "rz_15", "an_34", "rz_52", "jsut_6", "rz_56", "an_44", "cv_2745", "rz_62", "an_50",
+        "rz_64", "jsut_9", "an_65", "rz_67", "cv_2918", "rz_68", "an_66", "rz_11", "an_51", "cv_4475",
+        "rz_19", "an_55", "jsut_10", "rz_65", "an_52", "cv_3610", "rz_31", "an_9", "jsut_3", "an_38"
+      ]
+    }
+  ]
+}

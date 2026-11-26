@@ -1,8 +1,10 @@
 """Runtime configuration.
 
-Defaults are tuned for an 8 GB laptop GPU. Values can be overridden by a JSON
-file at %APPDATA%\\SubOrdinant\\config.json; any key not present there keeps the
-default below.
+The defaults below are the Balanced profile for Japanese speech to English
+captions - see subordinant/profiles.py, which is where the three profiles are
+defined and where the reasons for each value live. Everything the user changes
+in the Settings page is written to %APPDATA%\\SubOrdinant\\config.json; any key
+not present there keeps the default below.
 """
 
 from __future__ import annotations
@@ -11,7 +13,8 @@ import json
 import logging
 import os
 import sys
-from dataclasses import dataclass, fields
+import time
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -217,15 +220,79 @@ def asset_path(name: str) -> Path:
     return root / "assets" / name
 
 
+# Keys that older builds wrote and this one no longer reads. Dropped quietly on
+# load: warning about them on every launch would teach people to ignore the
+# warnings that matter.
+_RETIRED_KEYS = frozenset({"mt_async", "window_opacity", "window_on_top"})
+
+# Hard limits on values a person can type or a file can carry. A config that
+# says process_interval_sec = 0 is not a preference, it is a busy loop, and
+# the place to stop it is here rather than in every consumer.
+_LIMITS: dict[str, tuple[float, float]] = {
+    "beam_size": (1, 20),
+    "mt_beam_size": (1, 20),
+    "mt_preview_beam_size": (1, 10),
+    "process_interval_sec": (0.1, 3.0),
+    "min_chunk_sec": (0.2, 5.0),
+    "commit_holdback_sec": (0.0, 3.0),
+    "max_buffer_sec": (3.0, 30.0),
+    "max_backlog_sec": (1.0, 60.0),
+    "endpoint_silence_sec": (0.15, 3.0),
+    "eager_endpoint_sec": (0.0, 2.0),
+    "soft_pause_sec": (0.06, 1.0),
+    "long_pause_sec": (0.3, 6.0),
+    "vad_threshold": (0.05, 0.95),
+    "mt_max_utterance_sec": (1.0, 30.0),
+    "mt_preview_interval_sec": (0.0, 3.0),
+    "llm_context_utterances": (0, 20),
+    "llm_max_tokens": (16, 1024),
+    "llm_temperature": (0.0, 1.5),
+    "font_size": (10, 96),
+    "ui_font_size": (8, 20),
+    "translation_font_size": (9, 40),
+    "overlay_opacity": (0, 100),
+    "max_width_frac": (0.2, 1.0),
+    "bottom_margin_frac": (0.0, 0.45),
+    "display_history_sec": (1.0, 120.0),
+    "hide_after_idle_sec": (0.5, 120.0),
+    "history_max_entries": (50, 100000),
+    "audio_queue_sec": (2.0, 120.0),
+    "diarize_max_speakers": (1, 12),
+}
+
+_CHOICES: dict[str, tuple[str, ...]] = {
+    "device": ("auto", "cuda", "cpu"),
+    "task": ("transcribe", "translate"),
+    "mt_backend": ("ct2", "llm"),
+    "vad_mode": ("silero", "energy"),
+    "theme": ("dark", "light"),
+    "overlay_position": ("bottom", "top"),
+}
+
+
 @dataclass
 class Config:
+    # --- profile ---
+    # Which of profiles.PROFILES the settings below were last set from, or
+    # "custom" once any of them has been changed by hand. Bookkeeping for the
+    # GUI only: nothing in the pipeline reads it.
+    profile: str = "balanced"
+
     # --- model ---
-    model: str = "large-v3-turbo"
-    device: str = "cuda"  # "cuda" or "cpu"
+    model: str = "kotoba-tech/kotoba-whisper-v2.0-faster"
+    # "auto" tries the GPU and falls back to the CPU with an explanation;
+    # "cuda" and "cpu" insist.
+    device: str = "auto"
     compute_type: str = "float16"  # "int8_float16" halves VRAM, slightly worse
-    # Source language of the audio, not of the captions. "ja" with
-    # task="translate" gives Japanese audio -> English captions.
-    language: str = "en"
+    # What to transcribe with when the run ends up on the CPU without having
+    # asked to. The GPU models are 800M-1.5B parameters and manage a pass
+    # every several seconds there; this one keeps captions moving.
+    cpu_model: str = "small"
+    # Source language of the audio, not of the captions. This was "en" when
+    # the app was a captioner; it is a Japanese translator now, and handing
+    # Whisper Japanese speech with the English token set does not fail - it
+    # returns confident English-shaped nonsense.
+    language: str = "ja"
     # "translate" always targets English; Whisper has no other target. Needs a
     # full model - see translate_warning() in asr.py. Prefer mt_enabled below:
     # a dedicated NMT model translates better and costs less than this does.
@@ -276,21 +343,13 @@ class Config:
     # Whisper's task="translate". Captions then carry both the source text and
     # the English. See subordinant/translate.py for why this is the cheaper
     # route despite being a second model.
-    mt_enabled: bool = False
-    # Which translator runs: "ct2" is the CTranslate2 NMT model in mt_model
-    # (Sugoi), "llm" is a local instruction model over Ollama - see
-    # subordinant/llm_translate.py. They differ by ~10x in cost per call and are
-    # not interchangeable at every point in the loop, which is what mt_async and
-    # mt_live_enabled below are for.
-    mt_backend: str = "ct2"
-    # Translate off the ASR thread. Sugoi is 46 ms and is simply called inline;
-    # an LLM is 300-600 ms, and that inline would stall the capture loop for the
-    # whole call - audio piles up in the queue and drop_backlog() eventually
-    # fires, so the price of a slow translator would be discarded audio rather
-    # than a late caption. Off-thread the ASR loop never waits, and the caption
-    # arrives when it arrives. Left off for ct2, whose measured numbers were all
-    # taken on the inline path.
-    mt_async: bool = False
+    mt_enabled: bool = True
+    # Which translator produces the *final* line: "ct2" is the CTranslate2 NMT
+    # model in mt_model (Sugoi v4), "llm" is a local instruction model over
+    # Ollama - see subordinant/llm_translate.py. Either way translation runs
+    # on its own threads, never on the one doing recognition, so a slow
+    # translator costs a late caption and never dropped audio.
+    mt_backend: str = "llm"
     mt_model: str = "entai2965/sugoi-v4-ja-en-ctranslate2"
     # Which SentencePiece pair to load out of the model's spm/ directory.
     mt_source_lang: str = "ja"
@@ -319,7 +378,11 @@ class Config:
     # lower the preview rather than the committed pass: the preview is a guess
     # that rewrites itself anyway, while committed text amortises over ~8 passes
     # and is nearly free at any beam.
-    mt_beam_size: int = 10
+    #
+    # 5 rather than 10 since the benchmark (bench/mt_bench.py, 129 sentences):
+    # chrF 61.0 / 59.6 / 59.5 at beam 1 / 5 / 10 on clean text, and no
+    # ordering at all on recogniser output. Past 5 the beam is pure cost.
+    mt_beam_size: int = 5
     # NMT models degenerate into repetition loops when handed input they cannot
     # parse, and garbled ASR off a noisy stream is exactly that. Without these an
     # utterance can decode into hundreds of repeated words. The cap is the
@@ -338,7 +401,12 @@ class Config:
     # punctuation there, so this decides where lines are cut, and a cut landing
     # mid-word makes the translator invent a sentence around the fragment. See
     # ENGINES in window.py for the measured example.
-    mt_max_utterance_sec: float = 3.0
+    #
+    # It used to be the main thing deciding where lines were cut, at 3 s. It
+    # is now the last resort behind punctuation, pauses and grammar (see
+    # subordinant/segment.py), so it can afford to be long: firing early is
+    # what cut sentences mid-verb.
+    mt_max_utterance_sec: float = 7.0
     # Don't cut a translation unit at a change of voice if what comes before it
     # is shorter than this. A word or two stranded ahead of a speaker change is
     # nearly always the tail of the previous turn caught by a boundary window,
@@ -366,6 +434,31 @@ class Config:
     # Don't preview less than this much source text: a two-word fragment
     # translates to noise and just makes the line flicker.
     mt_live_min_chars: int = 4
+    # Beam for the preview pass. It runs several times a sentence and its
+    # output is thrown away, so it gets a narrow beam: 2 costs about a third
+    # of 10 and the difference is invisible in text that is about to change.
+    mt_preview_beam_size: int = 2
+    # Least time between two previews of the same sentence. The recogniser
+    # revises its tail several times a second and every revision would be a
+    # new translation of the whole line; nobody can read English that changes
+    # four times a second, so most of those are skipped.
+    mt_preview_interval_sec: float = 0.45
+    # The preview is built from the settled words plus the recogniser's
+    # current guess at what follows. The guess is included only when the
+    # recogniser is reasonably sure of it - mean word probability at least
+    # this - because a preview of a mis-heard tail is a rewrite waiting to
+    # happen. Below it the preview waits for the words to settle.
+    mt_preview_min_confidence: float = 0.5
+    # With an LLM doing the final line, draft the preview with the fast NMT
+    # model anyway. The LLM is too slow to re-translate a moving tail, so
+    # without this there is no English at all until a sentence has ended; with
+    # it the draft is on screen in a few hundred milliseconds and the LLM's
+    # line replaces it once. Costs the NMT model's VRAM, about 1 GB.
+    mt_hybrid_preview: bool = True
+    # If the LLM route cannot be used - Ollama not running, model not pulled,
+    # or it starts failing mid-session - finish lines with the NMT model
+    # instead of showing Japanese only.
+    mt_fallback_to_nmt: bool = True
 
     # --- LLM translation (mt_backend="llm") ---
     # Ollama's HTTP API, which is why this costs no new Python dependency:
@@ -406,7 +499,14 @@ class Config:
     #
     # Costs prefill on every call, which is cheap next to decode, so this is the
     # rare knob that buys quality at almost no latency. 0 disables it.
-    llm_context_utterances: int = 3
+    llm_context_utterances: int = 4
+    # Forget those prior turns after this much silence. Context from a
+    # conversation that ended two minutes ago is no longer context, it is
+    # bias - see the note on llm_context_utterances in the README.
+    llm_context_reset_sec: float = 120.0
+    # Keep -san, -chan, senpai and the like in the English, as fan
+    # translations do, rather than flattening them to Mr./Ms. or dropping them.
+    llm_keep_honorifics: bool = True
     # Give up on one translation after this long and emit nothing rather than
     # letting a wedged server back the queue up indefinitely. Generous, because
     # off-thread a slow call costs a late caption and nothing else.
@@ -499,25 +599,87 @@ class Config:
     # TRANSCRIBERS came from ordinary Japanese speech and puts this at RTF 0.67.
     # If captions start missing words under load, raise this to 0.45 before
     # touching beam_size.
+    #
+    # The loop now takes every block that has arrived before each pass rather
+    # than exactly one interval's worth, so this is a floor on the gap between
+    # passes, not a schedule: when a pass overruns, the next one simply covers
+    # more audio instead of queueing behind it.
     process_interval_sec: float = 0.35
     # Don't run inference at all until this much speech exists; very short
     # buffers produce garbage and hallucinations.
-    min_chunk_sec: float = 1.0
+    min_chunk_sec: float = 0.8
+    # A word is not settled until the audio has run at least this far past
+    # it, however many passes agree. The recogniser's guess at the word the
+    # buffer currently ends inside is its least reliable output, and two
+    # passes a fraction of a second apart make the same wrong guess often
+    # enough to matter: measured over the benchmark set, live recognition was
+    # making nearly twice the errors of the same model run on the finished
+    # audio, and most of the difference was text committed at the buffer's
+    # edge. Costs the settled Japanese this much extra delay while someone
+    # is still talking; a sentence that ends is settled whole regardless.
+    commit_holdback_sec: float = 0.4
     # Hard cap on the rolling buffer. Longer context is more accurate but each
     # inference re-transcribes the whole buffer, so cost grows with length and a
     # long buffer is what pushes RTF towards 1.0 during continuous speech.
-    max_buffer_sec: float = 12.0
-    # Silence this long ends the utterance: commit everything, clear the buffer.
+    max_buffer_sec: float = 10.0
+    # Only read with vad_mode="energy": that much quiet ends the utterance.
     silence_flush_sec: float = 0.7
     # If the worker falls this far behind real time, drop the backlog rather
     # than let caption latency grow without bound.
     max_backlog_sec: float = 6.0
 
-    # --- voice activity ---
-    # Cheap pre-gate only: decides whether audio is worth sending to the GPU.
-    # The real speech/non-speech decision is faster-whisper's bundled Silero VAD.
+    # --- voice activity and segmentation ---
+    # "silero" runs a neural voice detector over the stream and is what ends
+    # utterances; "energy" is the old volume gate, kept as a fallback. See
+    # subordinant/vad.py for why the difference is most of the latency.
+    vad_mode: str = "silero"
+    # Speech probability a frame needs to open an utterance.
+    vad_threshold: float = 0.5
+    # Nobody talking for this long ends the utterance: the recogniser takes a
+    # last look at the whole thing, everything is committed, and what was said
+    # goes to the translator. This is the main latency setting - the final
+    # English cannot arrive sooner than this after the last word.
+    endpoint_silence_sec: float = 0.45
+    # ...unless the text already says the sentence is over. When what has
+    # been recognised ends in a predicate or a sentence-final particle
+    # (...ます, ...だよ, ...。) and the speaker has paused this long, the
+    # utterance is closed without waiting out the rest of the endpoint. The
+    # endpoint above then only governs sentences that do *not* read as
+    # finished, which is where the caution it buys is wanted. 0 turns this
+    # off and every utterance waits the full endpoint.
+    #
+    # Not much below 0.3: at 0.2 the benchmark's error rate rose by half a
+    # point, from sentences cut where the speaker had only drawn breath.
+    eager_endpoint_sec: float = 0.3
+    # A pause at least this long *inside* running speech is recorded as a
+    # place a sentence might have ended. It is acted on only if the grammar
+    # agrees; see subordinant/segment.py.
+    soft_pause_sec: float = 0.16
+    # An utterance that ends on a particle demanding more (...は, ...けど) is
+    # held this long in case the speaker was only drawing breath. If they
+    # were not, it is translated as it stands.
+    long_pause_sec: float = 1.1
+    # Utterances with less voiced audio than this are clicks and breaths.
+    min_speech_sec: float = 0.2
+    # Volume threshold for the energy fallback.
     energy_gate_db: float = -48.0
-    vad_filter: bool = True
+    # Whisper's own VAD pass over every buffer. Redundant once the stream is
+    # gated by Silero before it gets there - the same model would score the
+    # same audio twice - so it is off; with vad_mode="energy" the pipeline
+    # turns it back on, because then nothing else is rejecting music.
+    vad_filter: bool = False
+
+    # --- performance ---
+    # Trade a little accuracy for memory: 8-bit weights for the recogniser and
+    # the NMT model, and a smaller LLM context. Roughly halves this process's
+    # VRAM. For cards with 8 GB or less, or for running beside a game.
+    vram_saver: bool = False
+    # Release model memory when translation is stopped rather than keeping the
+    # models warm for the next Start.
+    unload_on_stop: bool = False
+    # Ceiling on captured audio waiting to be processed. Past it the oldest
+    # audio is discarded and counted, so a stalled pipeline cannot eat memory.
+    audio_queue_sec: float = 15.0
 
     # --- window ---
     # The main window is the default surface. The overlay draws on the primary
@@ -526,11 +688,44 @@ class Config:
     # on one screen over whatever is on the other, and it cannot draw over an
     # exclusive-fullscreen game at all. Enable it for single-screen full-screen
     # viewing, where there is nothing to collide with.
-    overlay_enabled: bool = False
-    window_opacity: int = 100  # percent; the window's slider writes this back
-    window_on_top: bool = False
+    overlay_enabled: bool = True
+    theme: str = "dark"  # "dark" or "light"
+    # Base size of the interface text, in points.
+    ui_font_size: int = 10
+    # Size of the English in the transcript, in points. The Japanese under it
+    # follows at a fixed ratio.
+    translation_font_size: int = 15
+    # Show the Japanese under each translation in the main window.
+    show_source: bool = True
+    show_timestamps: bool = True
+    # Qt's saveGeometry() blob, base64. Empty until the window has been moved.
+    window_geometry: str = ""
+    # Utterances kept in memory for the History page. Past it the oldest are
+    # dropped: a six-hour stream is several thousand lines, and nobody
+    # searches the first hour of one.
+    history_max_entries: int = 3000
+    # Show the performance panel.
+    metrics_visible: bool = False
+
+    # --- general ---
+    start_minimized: bool = False
+    # Closing the window keeps the app running in the tray.
+    minimize_to_tray: bool = True
+    # Mirrors the HKCU Run entry; subordinant/autostart.py is the truth.
+    launch_on_startup: bool = False
+    # Come back with the profile and models that were in use last time. Off,
+    # every launch starts from the Balanced profile; appearance and window
+    # settings are kept either way.
+    restore_last_config: bool = True
+    # Begin translating as soon as the app opens instead of waiting for Start.
+    autostart_translation: bool = False
 
     # --- overlay ---
+    # Opacity of the caption plate, percent. The text itself stays opaque.
+    overlay_opacity: int = 74
+    overlay_position: str = "bottom"  # "bottom" or "top"
+    # Show the Japanese under the English on the overlay as well.
+    overlay_show_source: bool = False
     font_family: str = "Segoe UI"
     font_size: int = 26
     # Fraction of screen width the caption box may occupy before wrapping.
@@ -540,8 +735,8 @@ class Config:
     committed_color: str = "#ffffff"
     unstable_color: str = "#9aa0a6"
     background_rgba: str = "rgba(0, 0, 0, 190)"
-    # How much committed text to keep on screen, in seconds of speech.
-    display_history_sec: float = 12.0
+    # How long a finished caption stays on the overlay if nothing replaces it.
+    display_history_sec: float = 8.0
     # Hide the overlay entirely after this long with nothing to show.
     hide_after_idle_sec: float = 4.0
 
@@ -549,6 +744,10 @@ class Config:
     # Capture buffer size in frames, at the device's native rate. Smaller means
     # lower capture latency and more callbacks.
     frames_per_buffer: int = 1024
+
+    # Problems found while loading, in words fit to show the user. Not a
+    # setting: excluded from comparison and never written to disk.
+    load_notes: list = field(default_factory=list, compare=False, repr=False)
 
     @classmethod
     def load(cls) -> "Config":
@@ -558,15 +757,61 @@ class Config:
             return cfg
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            if not isinstance(data, dict):
+                raise ValueError("top level is not an object")
+        except (OSError, ValueError) as exc:
+            # Keep the unreadable file rather than overwriting it at exit: it
+            # may be one hand-edit away from fine, and it is the only record
+            # of what the settings were.
+            backup = path.with_name(
+                f"config.corrupt-{time.strftime('%Y%m%d-%H%M%S')}.json"
+            )
+            try:
+                path.replace(backup)
+                kept = f" The old file was kept as {backup.name}."
+            except OSError:
+                kept = ""
             log.warning("ignoring unreadable config at %s: %s", path, exc)
+            cfg.load_notes.append(
+                "Your settings file could not be read, so defaults are in use." + kept
+            )
             return cfg
-        known = {f.name for f in fields(cls)}
+
+        # A file that names a profile is that profile plus whatever else was
+        # chosen. save() omits every value equal to a default, and a profile
+        # is mostly values that are another profile's defaults - so read
+        # against the defaults alone, a saved "fast" would come back as
+        # Balanced with a few Fast settings on top. Start from the profile.
+        named = data.get("profile")
+        if isinstance(named, str):
+            from .profiles import PROFILES, apply_profile
+
+            if named in PROFILES:
+                apply_profile(cfg, named)
+
+        defaults = cls()
+        known = {f.name for f in fields(cls) if f.name != "load_notes"}
+        rejected: list[str] = []
         for key, value in data.items():
-            if key in known:
-                setattr(cfg, key, value)
-            else:
+            if key in _RETIRED_KEYS:
+                continue
+            if key not in known:
                 log.warning("unknown config key %r ignored", key)
+                continue
+            ok, coerced = _coerce(key, value, getattr(defaults, key))
+            if not ok:
+                log.warning(
+                    "config key %r has unusable value %r; using default", key, value
+                )
+                rejected.append(key)
+                continue
+            setattr(cfg, key, coerced)
+        if rejected:
+            cfg.load_notes.append(
+                "Some saved settings were not valid and were reset to defaults: "
+                + ", ".join(sorted(rejected))
+                + "."
+            )
         return cfg
 
     def save(self) -> Path:
@@ -581,6 +826,9 @@ class Config:
 
         Recording only what was actually chosen keeps the file a statement of
         intent, so defaults stay live.
+
+        Written to a temporary file and moved into place, so a crash or power
+        cut mid-write leaves the previous settings rather than half of new ones.
         """
         path = config_dir() / "config.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -588,11 +836,63 @@ class Config:
         chosen = {
             f.name: getattr(self, f.name)
             for f in fields(self)
-            if getattr(self, f.name) != getattr(defaults, f.name)
+            if f.name != "load_notes"
+            and getattr(self, f.name) != getattr(defaults, f.name)
         }
         # ensure_ascii=False so a Japanese name glossary stays readable in the
         # file rather than turning into a wall of \u escapes.
-        path.write_text(
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(
             json.dumps(chosen, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+        os.replace(tmp, path)
         return path
+
+    def copy(self) -> "Config":
+        """An independent copy. The pipeline works on one, so a setting changed
+        in the GUI mid-run cannot reach half of a running pass."""
+        clone = type(self)()
+        for f in fields(self):
+            if f.name != "load_notes":
+                setattr(clone, f.name, getattr(self, f.name))
+        return clone
+
+
+def _coerce(key: str, value, default):
+    """Check one loaded value against the type and range of its default.
+
+    Returns (ok, value). JSON has one number type and people edit these files
+    by hand, so 3 is accepted where 3.0 is expected and the reverse where it
+    loses nothing; anything else that does not fit is rejected rather than
+    guessed at, and the caller falls back to the default.
+    """
+    if isinstance(default, bool):
+        if isinstance(value, bool):
+            return True, value
+        return False, default
+    if isinstance(default, int):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False, default
+        if float(value) != int(value):
+            return False, default
+        value = int(value)
+    elif isinstance(default, float):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False, default
+        value = float(value)
+        if value != value or value in (float("inf"), float("-inf")):
+            return False, default
+    elif isinstance(default, str):
+        if not isinstance(value, str):
+            return False, default
+        choices = _CHOICES.get(key)
+        if choices and value not in choices:
+            return False, default
+        return True, value
+    else:
+        return False, default
+    limits = _LIMITS.get(key)
+    if limits:
+        low, high = limits
+        value = type(value)(min(max(value, low), high))
+    return True, value

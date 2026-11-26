@@ -1,0 +1,438 @@
+{
+ "label": "dev-fast",
+ "note": "",
+ "when": "2026-11-24 23:29:52",
+ "config": {
+  "profile": "fast",
+  "beam_size": 1,
+  "mt_beam_size": 5,
+  "mt_max_utterance_sec": 5.0,
+  "mt_preview_min_confidence": 0.35,
+  "llm_context_utterances": 0,
+  "process_interval_sec": 0.25,
+  "min_chunk_sec": 0.6,
+  "max_buffer_sec": 8.0,
+  "endpoint_silence_sec": 0.32,
+  "long_pause_sec": 0.8
+ },
+ "load_sec": 2.73,
+ "summary": {
+  "cer": 0.118,
+  "chrf": 60.53,
+  "source_lag_p50": 0.476,
+  "first_english_p50": 1.153,
+  "final_after_end_p50": 0.643,
+  "final_after_end_p90": 1.117,
+  "final_lag_p50": 0.704,
+  "sentences": 24,
+  "sentences_finalised": 23,
+  "unplaced_finals": 0,
+  "duplicate_finals": 0
+ },
+ "system": {
+  "gpu_mem_peak_mib": 14590,
+  "gpu_util_mean_pct": 30.4,
+  "process_rss_peak_mib": 1188.8,
+  "process_cpu_mean_pct_of_one_core": 44.3,
+  "ollama_rss_peak_mib": 37.8,
+  "gpu_mem_before_mib": 11175,
+  "gpu_mem_added_mib": 3415
+ },
+ "samples": {
+  "04_multi_speaker": {
+   "sentences": 16,
+   "cer": 0.1037,
+   "cer_detail": {
+    "sub": 14,
+    "del": 8,
+    "ins": 6,
+    "ref_len": 270,
+    "hyp_len": 268
+   },
+   "chrf": 61.94,
+   "source_lag": {
+    "n": 85,
+    "mean": 0.502,
+    "p50": 0.481,
+    "p90": 0.67,
+    "max": 1.515
+   },
+   "first_english_after_start": {
+    "n": 15,
+    "mean": 1.02,
+    "p50": 0.895,
+    "p90": 1.547,
+    "max": 1.589
+   },
+   "final_after_sentence_end": {
+    "n": 15,
+    "mean": 0.826,
+    "p50": 0.693,
+    "p90": 1.096,
+    "max": 2.782
+   },
+   "final_lag": {
+    "n": 16,
+    "mean": 0.711,
+    "p50": 0.672,
+    "p90": 1.018,
+    "max": 1.151
+   },
+   "sentences_finalised": 15,
+   "sentences_with_english": 15,
+   "finals": 16,
+   "empty_finals": 0,
+   "unplaced_finals": 0,
+   "duplicate_finals": 0,
+   "previews": 61,
+   "previews_per_sentence": 3.81,
+   "preview_prefix_kept": 0.203
+  },
+  "07_pauses": {
+   "sentences": 8,
+   "cer": 0.1348,
+   "cer_detail": {
+    "sub": 13,
+    "del": 8,
+    "ins": 10,
+    "ref_len": 230,
+    "hyp_len": 232
+   },
+   "chrf": 59.12,
+   "source_lag": {
+    "n": 92,
+    "mean": 0.47,
+    "p50": 0.472,
+    "p90": 0.59,
+    "max": 0.786
+   },
+   "first_english_after_start": {
+    "n": 8,
+    "mean": 1.482,
+    "p50": 1.412,
+    "p90": 2.046,
+    "max": 2.249
+   },
+   "final_after_sentence_end": {
+    "n": 8,
+    "mean": 0.693,
+    "p50": 0.593,
+    "p90": 1.137,
+    "max": 1.218
+   },
+   "final_lag": {
+    "n": 19,
+    "mean": 0.896,
+    "p50": 0.735,
+    "p90": 1.445,
+    "max": 2.021
+   },
+   "sentences_finalised": 8,
+   "sentences_with_english": 8,
+   "finals": 19,
+   "empty_finals": 0,
+   "unplaced_finals": 0,
+   "duplicate_finals": 0,
+   "previews": 54,
+   "previews_per_sentence": 6.75,
+   "preview_prefix_kept": 0.204
+  }
+ },
+ "engine": {
+  "04_multi_speaker": {
+   "uptime_sec": 61.6,
+   "keeping_up": true,
+   "health": "Keeping up with real time",
+   "engine": "Kotoba-Whisper v2.0 on cuda (float16)",
+   "translator": "Sugoi v4",
+   "device_name": "replay: 04_multi_speaker",
+   "capture_latency_ms": 0.5,
+   "capture_latency_max_ms": 17.0,
+   "passes": 178,
+   "mean_pass_ms": 100.9,
+   "p90_pass_ms": 140.1,
+   "last_pass_ms": 92.6,
+   "average_pass_ms": 100.9,
+   "rtf": 0.374,
+   "audio_sec": 56.8,
+   "speech_sec": 48.0,
+   "source_lag_sec": 0.365,
+   "source_lag_p90_sec": 0.497,
+   "preview_latency_sec": 0.924,
+   "final_latency_sec": 0.498,
+   "final_latency_p90_sec": 0.848,
+   "final_latency_mean_sec": 0.564,
+   "mt_final_ms": 65.8,
+   "mt_final_p90_ms": 109.2,
+   "mt_preview_ms": 27.0,
+   "llm_first_token_ms": null,
+   "utterances": 16,
+   "previews": 63,
+   "commits": 86,
+   "mt_failures": 0,
+   "fallback_lines": 0,
+   "backlog_sec": 0.0,
+   "backlog_max_sec": 0.3,
+   "drops": 0,
+   "backlog_dropped_sec": 0.0,
+   "capture_dropped_blocks": 0,
+   "capture_dropped_sec": 0.0,
+   "device_reopens": 0,
+   "recoveries": 0,
+   "speakers": 0,
+   "gpu_mem_used_mib": 14821,
+   "gpu_mem_total_mib": 16376,
+   "gpu_util_pct": 20,
+   "process_rss_mib": 1173,
+   "mt_calls": {
+    "n": 79,
+    "mean_ms": 34.8,
+    "p50_ms": 24.2,
+    "p90_ms": 77.5,
+    "max_ms": 123.3,
+    "first_token_mean_ms": null
+   }
+  },
+  "07_pauses": {
+   "uptime_sec": 91.6,
+   "keeping_up": true,
+   "health": "Keeping up with real time",
+   "engine": "Kotoba-Whisper v2.0 on cuda (float16)",
+   "translator": "Sugoi v4",
+   "device_name": "replay: 07_pauses",
+   "capture_latency_ms": 0.3,
+   "capture_latency_max_ms": 16.0,
+   "passes": 175,
+   "mean_pass_ms": 107.3,
+   "p90_pass_ms": 150.0,
+   "last_pass_ms": 91.8,
+   "average_pass_ms": 107.3,
+   "rtf": 0.389,
+   "audio_sec": 89.5,
+   "speech_sec": 48.4,
+   "source_lag_sec": 0.344,
+   "source_lag_p90_sec": 0.459,
+   "preview_latency_sec": 0.974,
+   "final_latency_sec": 0.704,
+   "final_latency_p90_sec": 1.22,
+   "final_latency_mean_sec": 0.755,
+   "mt_final_ms": 29.3,
+   "mt_final_p90_ms": 47.5,
+   "mt_preview_ms": 32.3,
+   "llm_first_token_ms": null,
+   "utterances": 19,
+   "previews": 56,
+   "commits": 94,
+   "mt_failures": 0,
+   "fallback_lines": 0,
+   "backlog_sec": 0.0,
+   "backlog_max_sec": 0.34,
+   "drops": 0,
+   "backlog_dropped_sec": 0.0,
+   "capture_dropped_blocks": 0,
+   "capture_dropped_sec": 0.0,
+   "device_reopens": 0,
+   "recoveries": 0,
+   "speakers": 0,
+   "gpu_mem_used_mib": 14825,
+   "gpu_mem_total_mib": 16376,
+   "gpu_util_pct": 26,
+   "process_rss_mib": 1187,
+   "mt_calls": {
+    "n": 75,
+    "mean_ms": 31.6,
+    "p50_ms": 22.7,
+    "p90_ms": 79.2,
+    "max_ms": 105.9,
+    "first_token_mean_ms": null
+   }
+  }
+ },
+ "transcripts": {
+  "04_multi_speaker": {
+   "finals": [
+    {
+     "t": 6.921,
+     "source": "歯が痛いので口を開けることができません",
+     "english": "My teeth hurt, so I can't open my mouth."
+    },
+    {
+     "t": 10.184,
+     "source": "週に4回フランスの授業があります",
+     "english": "Four French classes a week."
+    },
+    {
+     "t": 15.524,
+     "source": "この動画ハプニングを予想装ってるけど仕込んでるのがバレバレ",
+     "english": "I'm expecting this video to happen, but it's obvious that they're preparing."
+    },
+    {
+     "t": 18.903,
+     "source": "ひょっとしてこれで記憶喪失?",
+     "english": "Could this be amnesia?"
+    },
+    {
+     "t": 20.983,
+     "source": "雪の日は出かけません",
+     "english": "I don't go out on snowy days."
+    },
+    {
+     "t": 25.39,
+     "source": "この大学アメリカ・イギリスどっちだっけ",
+     "english": "This university, america or england?"
+    },
+    {
+     "t": 27.019,
+     "source": "ありがとう",
+     "english": "Thank you."
+    },
+    {
+     "t": 28.225,
+     "source": "これで結構です",
+     "english": "That's enough."
+    },
+    {
+     "t": 30.412,
+     "source": "そうですねそれが一番大事だだと思います",
+     "english": "Yeah, I think that's the most important thing."
+    },
+    {
+     "t": 33.111,
+     "source": "そんな演出意図誰も分からないよ",
+     "english": "Nobody knows why you're doing that."
+    },
+    {
+     "t": 36.49,
+     "source": "これは日本で打売っていない食べ物です。",
+     "english": "This is food that isn't sold in Japan."
+    },
+    {
+     "t": 39.042,
+     "source": "なんだかおなかすいちゃったね",
+     "english": "I'm kind of hungry."
+    },
+    {
+     "t": 42.543,
+     "source": "元気ゆすぎて普通の人には理解できなくなった",
+     "english": "She was so energetic that normal people could no longer understand her."
+    },
+    {
+     "t": 46.353,
+     "source": "コーヒーが飲みたいんじゃなくて落ち着いた場所で休みたいんだよ",
+     "english": "I don't want to drink coffee, but rather rest in a calm place."
+    },
+    {
+     "t": 49.651,
+     "source": "今日の月はとりわけきれいだ",
+     "english": "The moon is especially beautiful today."
+    },
+    {
+     "t": 52.358,
+     "source": "チャンネルを変えることなくテレビを見ていた",
+     "english": "I was watching tv without changing the channel."
+    }
+   ],
+   "statuses": []
+  },
+  "07_pauses": {
+   "finals": [
+    {
+     "t": 7.305,
+     "source": "木曜日停戦会談は",
+     "english": "Thursday, the truce meeting"
+    },
+    {
+     "t": 10.112,
+     "source": "何の進展もないまま終了しました",
+     "english": "It ended without any progress."
+    },
+    {
+     "t": 12.583,
+     "source": "ごめんなさい",
+     "english": "I'm sorry."
+    },
+    {
+     "t": 18.181,
+     "source": "名前とかはなんとなく覚えてるんだけどそれ",
+     "english": "I kind of remember her name, but that's..."
+    },
+    {
+     "t": 19.438,
+     "source": "以外はよく思い出せないみたいバイバイ",
+     "english": "Looks like she can't remember much else. Bye bye."
+    },
+    {
+     "t": 27.635,
+     "source": "大声で泣きながら",
+     "english": "She cried loudly"
+    },
+    {
+     "t": 30.8,
+     "source": "女の子は母親を探していた",
+     "english": "The girl was looking for her mother."
+    },
+    {
+     "t": 37.696,
+     "source": "はい今朝の東京風はなさそうです。けどね体感はどうでしょうか。",
+     "english": "Yes, it doesn't look like tokyo style this morning. But how do you feel?"
+    },
+    {
+     "t": 38.084,
+     "source": "近藤さん。",
+     "english": "Kondousan."
+    },
+    {
+     "t": 50.894,
+     "source": "牧師県に備えて本当に気合を入れて勉強しなきゃ",
+     "english": "I really need to study hard in preparation for the Reverend's Department."
+    },
+    {
+     "t": 53.914,
+     "source": "マンションに住んでるんだね",
+     "english": "You live in an apartment."
+    },
+    {
+     "t": 56.535,
+     "source": "えっと",
+     "english": "Let's see..."
+    },
+    {
+     "t": 57.579,
+     "source": "なに?",
+     "english": "What?"
+    },
+    {
+     "t": 58.222,
+     "source": "さんだ",
+     "english": "It's Sanda."
+    },
+    {
+     "t": 58.835,
+     "source": "っけけ",
+     "english": "Heck yeah."
+    },
+    {
+     "t": 68.637,
+     "source": "どうしてたの?って言われても",
+     "english": "What were you doing? Even if you say that..."
+    },
+    {
+     "t": 72.579,
+     "source": "ごめんね何にも覚えてないんだ",
+     "english": "Sorry, I don't remember anything."
+    },
+    {
+     "t": 77.522,
+     "source": "そもそも本当に7年経ったのかどうかも分かんないし",
+     "english": "I don’t even know if it’s really been seven years in the first place"
+    },
+    {
+     "t": 80.134,
+     "source": "だからどんなことにも耐えられます",
+     "english": "So I can put up with anything."
+    }
+   ],
+   "statuses": []
+  }
+ }
+}

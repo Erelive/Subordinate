@@ -1,0 +1,2114 @@
+{
+ "label": "fast",
+ "note": "after the recognition rework, real time",
+ "realtime": true,
+ "when": "2026-11-26 16:44:30",
+ "config": {
+  "profile": "fast",
+  "beam_size": 1,
+  "mt_backend": "ct2",
+  "mt_max_utterance_sec": 5.0,
+  "mt_preview_min_confidence": 0.35,
+  "llm_context_utterances": 0,
+  "process_interval_sec": 0.25,
+  "min_chunk_sec": 0.6,
+  "commit_holdback_sec": 0.3,
+  "max_buffer_sec": 8.0,
+  "endpoint_silence_sec": 0.32,
+  "long_pause_sec": 0.8
+ },
+ "load_sec": 2.71,
+ "summary": {
+  "cer": 0.1513,
+  "transcript_cer": 0.1513,
+  "chrf": 59.24,
+  "source_lag_p50": 0.793,
+  "first_english_p50": 1.295,
+  "final_after_end_p50": 0.713,
+  "final_after_end_p90": 1.496,
+  "final_lag_p50": 0.837,
+  "sentences": 129,
+  "sentences_finalised": 129,
+  "unplaced_finals": 3,
+  "duplicate_finals": 0
+ },
+ "system": {
+  "gpu_mem_peak_mib": 10053,
+  "gpu_util_mean_pct": 63.4,
+  "process_rss_peak_mib": 2005.4,
+  "process_cpu_mean_pct_of_one_core": 68.6,
+  "ollama_rss_peak_mib": 120.5,
+  "gpu_mem_before_mib": 4875,
+  "gpu_mem_added_mib": 5178
+ },
+ "samples": {
+  "01_slow_clear": {
+   "sentences": 12,
+   "cer": 0.0298,
+   "cer_detail": {
+    "sub": 5,
+    "del": 2,
+    "ins": 0,
+    "ref_len": 235,
+    "hyp_len": 233
+   },
+   "transcript_cer": 0.0298,
+   "transcript_cer_detail": {
+    "sub": 5,
+    "del": 2,
+    "ins": 0,
+    "ref_len": 235,
+    "hyp_len": 233
+   },
+   "chrf": 73.0,
+   "source_lag": {
+    "n": 12,
+    "mean": 0.548,
+    "p50": 0.562,
+    "p90": 0.695,
+    "max": 0.726
+   },
+   "first_english_after_start": {
+    "n": 12,
+    "mean": 1.196,
+    "p50": 1.128,
+    "p90": 1.645,
+    "max": 1.705
+   },
+   "final_after_sentence_end": {
+    "n": 12,
+    "mean": 0.589,
+    "p50": 0.599,
+    "p90": 0.747,
+    "max": 0.762
+   },
+   "final_lag": {
+    "n": 12,
+    "mean": 0.589,
+    "p50": 0.599,
+    "p90": 0.747,
+    "max": 0.762
+   },
+   "sentences_finalised": 12,
+   "sentences_with_english": 12,
+   "finals": 12,
+   "empty_finals": 0,
+   "unplaced_finals": 0,
+   "duplicate_finals": 0,
+   "previews": 62,
+   "previews_per_sentence": 5.17,
+   "preview_prefix_kept": 0.162
+  },
+  "02_conversational": {
+   "sentences": 13,
+   "cer": 0.1756,
+   "cer_detail": {
+    "sub": 28,
+    "del": 24,
+    "ins": 23,
+    "ref_len": 427,
+    "hyp_len": 426
+   },
+   "transcript_cer": 0.1756,
+   "transcript_cer_detail": {
+    "sub": 28,
+    "del": 24,
+    "ins": 23,
+    "ref_len": 427,
+    "hyp_len": 426
+   },
+   "chrf": 48.38,
+   "source_lag": {
+    "n": 24,
+    "mean": 1.337,
+    "p50": 0.964,
+    "p90": 2.618,
+    "max": 4.874
+   },
+   "first_english_after_start": {
+    "n": 13,
+    "mean": 1.364,
+    "p50": 1.121,
+    "p90": 1.711,
+    "max": 3.21
+   },
+   "final_after_sentence_end": {
+    "n": 13,
+    "mean": 0.792,
+    "p50": 0.683,
+    "p90": 1.125,
+    "max": 1.755
+   },
+   "final_lag": {
+    "n": 24,
+    "mean": 1.386,
+    "p50": 1.024,
+    "p90": 2.655,
+    "max": 4.898
+   },
+   "sentences_finalised": 13,
+   "sentences_with_english": 13,
+   "finals": 24,
+   "empty_finals": 0,
+   "unplaced_finals": 0,
+   "duplicate_finals": 0,
+   "previews": 102,
+   "previews_per_sentence": 7.85,
+   "preview_prefix_kept": 0.161
+  },
+  "03_fast": {
+   "sentences": 11,
+   "cer": 0.1807,
+   "cer_detail": {
+    "sub": 22,
+    "del": 28,
+    "ins": 23,
+    "ref_len": 404,
+    "hyp_len": 399
+   },
+   "transcript_cer": 0.1807,
+   "transcript_cer_detail": {
+    "sub": 22,
+    "del": 28,
+    "ins": 23,
+    "ref_len": 404,
+    "hyp_len": 399
+   },
+   "chrf": 62.76,
+   "source_lag": {
+    "n": 19,
+    "mean": 1.009,
+    "p50": 0.706,
+    "p90": 2.255,
+    "max": 2.963
+   },
+   "first_english_after_start": {
+    "n": 11,
+    "mean": 1.538,
+    "p50": 1.644,
+    "p90": 1.948,
+    "max": 2.067
+   },
+   "final_after_sentence_end": {
+    "n": 11,
+    "mean": 1.102,
+    "p50": 0.742,
+    "p90": 2.125,
+    "max": 2.833
+   },
+   "final_lag": {
+    "n": 19,
+    "mean": 1.068,
+    "p50": 0.742,
+    "p90": 2.301,
+    "max": 3.033
+   },
+   "sentences_finalised": 11,
+   "sentences_with_english": 11,
+   "finals": 20,
+   "empty_finals": 0,
+   "unplaced_finals": 1,
+   "duplicate_finals": 0,
+   "previews": 97,
+   "previews_per_sentence": 8.82,
+   "preview_prefix_kept": 0.21
+  },
+  "04_multi_speaker": {
+   "sentences": 16,
+   "cer": 0.0778,
+   "cer_detail": {
+    "sub": 12,
+    "del": 7,
+    "ins": 2,
+    "ref_len": 270,
+    "hyp_len": 265
+   },
+   "transcript_cer": 0.0778,
+   "transcript_cer_detail": {
+    "sub": 12,
+    "del": 7,
+    "ins": 2,
+    "ref_len": 270,
+    "hyp_len": 265
+   },
+   "chrf": 60.37,
+   "source_lag": {
+    "n": 17,
+    "mean": 0.635,
+    "p50": 0.607,
+    "p90": 0.864,
+    "max": 1.156
+   },
+   "first_english_after_start": {
+    "n": 16,
+    "mean": 1.066,
+    "p50": 0.98,
+    "p90": 1.536,
+    "max": 1.898
+   },
+   "final_after_sentence_end": {
+    "n": 16,
+    "mean": 0.672,
+    "p50": 0.664,
+    "p90": 0.946,
+    "max": 1.208
+   },
+   "final_lag": {
+    "n": 17,
+    "mean": 0.679,
+    "p50": 0.659,
+    "p90": 0.933,
+    "max": 1.208
+   },
+   "sentences_finalised": 16,
+   "sentences_with_english": 16,
+   "finals": 17,
+   "empty_finals": 0,
+   "unplaced_finals": 0,
+   "duplicate_finals": 0,
+   "previews": 59,
+   "previews_per_sentence": 3.69,
+   "preview_prefix_kept": 0.213
+  },
+  "05_casual_slang": {
+   "sentences": 16,
+   "cer": 0.1602,
+   "cer_detail": {
+    "sub": 21,
+    "del": 31,
+    "ins": 6,
+    "ref_len": 362,
+    "hyp_len": 337
+   },
+   "transcript_cer": 0.1602,
+   "transcript_cer_detail": {
+    "sub": 21,
+    "del": 31,
+    "ins": 6,
+    "ref_len": 362,
+    "hyp_len": 337
+   },
+   "chrf": 56.65,
+   "source_lag": {
+    "n": 29,
+    "mean": 0.804,
+    "p50": 0.729,
+    "p90": 1.252,
+    "max": 1.961
+   },
+   "first_english_after_start": {
+    "n": 16,
+    "mean": 1.568,
+    "p50": 1.312,
+    "p90": 2.252,
+    "max": 5.833
+   },
+   "final_after_sentence_end": {
+    "n": 16,
+    "mean": 0.942,
+    "p50": 0.716,
+    "p90": 1.647,
+    "max": 2.464
+   },
+   "final_lag": {
+    "n": 29,
+    "mean": 0.84,
+    "p50": 0.757,
+    "p90": 1.324,
+    "max": 1.98
+   },
+   "sentences_finalised": 16,
+   "sentences_with_english": 16,
+   "finals": 29,
+   "empty_finals": 0,
+   "unplaced_finals": 0,
+   "duplicate_finals": 0,
+   "previews": 82,
+   "previews_per_sentence": 5.12,
+   "preview_prefix_kept": 0.215
+  },
+  "06_background_music": {
+   "sentences": 13,
+   "cer": 0.178,
+   "cer_detail": {
+    "sub": 22,
+    "del": 35,
+    "ins": 19,
+    "ref_len": 427,
+    "hyp_len": 411
+   },
+   "transcript_cer": 0.178,
+   "transcript_cer_detail": {
+    "sub": 22,
+    "del": 35,
+    "ins": 19,
+    "ref_len": 427,
+    "hyp_len": 411
+   },
+   "chrf": 48.58,
+   "source_lag": {
+    "n": 22,
+    "mean": 1.216,
+    "p50": 0.875,
+    "p90": 2.577,
+    "max": 4.451
+   },
+   "first_english_after_start": {
+    "n": 13,
+    "mean": 1.335,
+    "p50": 1.332,
+    "p90": 1.797,
+    "max": 1.924
+   },
+   "final_after_sentence_end": {
+    "n": 13,
+    "mean": 0.665,
+    "p50": 0.668,
+    "p90": 1.248,
+    "max": 2.362
+   },
+   "final_lag": {
+    "n": 22,
+    "mean": 1.141,
+    "p50": 0.808,
+    "p90": 2.618,
+    "max": 4.634
+   },
+   "sentences_finalised": 13,
+   "sentences_with_english": 13,
+   "finals": 22,
+   "empty_finals": 0,
+   "unplaced_finals": 0,
+   "duplicate_finals": 0,
+   "previews": 99,
+   "previews_per_sentence": 7.62,
+   "preview_prefix_kept": 0.177
+  },
+  "07_pauses": {
+   "sentences": 8,
+   "cer": 0.0826,
+   "cer_detail": {
+    "sub": 9,
+    "del": 8,
+    "ins": 2,
+    "ref_len": 230,
+    "hyp_len": 224
+   },
+   "transcript_cer": 0.0826,
+   "transcript_cer_detail": {
+    "sub": 9,
+    "del": 8,
+    "ins": 2,
+    "ref_len": 230,
+    "hyp_len": 224
+   },
+   "chrf": 62.11,
+   "source_lag": {
+    "n": 17,
+    "mean": 0.999,
+    "p50": 0.871,
+    "p90": 1.581,
+    "max": 3.062
+   },
+   "first_english_after_start": {
+    "n": 8,
+    "mean": 1.42,
+    "p50": 1.244,
+    "p90": 1.917,
+    "max": 2.063
+   },
+   "final_after_sentence_end": {
+    "n": 8,
+    "mean": 0.821,
+    "p50": 0.795,
+    "p90": 1.05,
+    "max": 1.268
+   },
+   "final_lag": {
+    "n": 17,
+    "mean": 1.041,
+    "p50": 0.94,
+    "p90": 1.608,
+    "max": 3.084
+   },
+   "sentences_finalised": 8,
+   "sentences_with_english": 8,
+   "finals": 17,
+   "empty_finals": 0,
+   "unplaced_finals": 0,
+   "duplicate_finals": 0,
+   "previews": 57,
+   "previews_per_sentence": 7.12,
+   "preview_prefix_kept": 0.25
+  },
+  "08_long_continuous": {
+   "sentences": 40,
+   "cer": 0.1756,
+   "cer_detail": {
+    "sub": 55,
+    "del": 69,
+    "ins": 72,
+    "ref_len": 1116,
+    "hyp_len": 1119
+   },
+   "transcript_cer": 0.1756,
+   "transcript_cer_detail": {
+    "sub": 55,
+    "del": 69,
+    "ins": 72,
+    "ref_len": 1116,
+    "hyp_len": 1119
+   },
+   "chrf": 62.08,
+   "source_lag": {
+    "n": 73,
+    "mean": 1.392,
+    "p50": 1.03,
+    "p90": 2.965,
+    "max": 5.39
+   },
+   "first_english_after_start": {
+    "n": 40,
+    "mean": 1.803,
+    "p50": 1.599,
+    "p90": 2.654,
+    "max": 5.703
+   },
+   "final_after_sentence_end": {
+    "n": 40,
+    "mean": 1.344,
+    "p50": 0.84,
+    "p90": 3.076,
+    "max": 5.153
+   },
+   "final_lag": {
+    "n": 73,
+    "mean": 1.527,
+    "p50": 1.168,
+    "p90": 3.159,
+    "max": 5.64
+   },
+   "sentences_finalised": 40,
+   "sentences_with_english": 40,
+   "finals": 75,
+   "empty_finals": 0,
+   "unplaced_finals": 2,
+   "duplicate_finals": 0,
+   "previews": 263,
+   "previews_per_sentence": 6.58,
+   "preview_prefix_kept": 0.173
+  }
+ },
+ "engine": {
+  "01_slow_clear": {
+   "uptime_sec": 68.6,
+   "keeping_up": true,
+   "health": "Keeping up with real time",
+   "engine": "Kotoba-Whisper v2.0 on cuda (float16)",
+   "translator": "Sugoi v4",
+   "device_name": "replay: 01_slow_clear",
+   "capture_latency_ms": 0.5,
+   "capture_latency_max_ms": 16.7,
+   "passes": 161,
+   "mean_pass_ms": 139.5,
+   "p90_pass_ms": 184.9,
+   "last_pass_ms": 148.7,
+   "average_pass_ms": 139.5,
+   "rtf": 0.476,
+   "audio_sec": 63.8,
+   "speech_sec": 47.1,
+   "source_lag_sec": 0.542,
+   "source_lag_p90_sec": 0.647,
+   "preview_latency_sec": 1.263,
+   "final_latency_sec": 0.571,
+   "final_latency_p90_sec": 0.642,
+   "final_latency_mean_sec": 0.542,
+   "mt_final_ms": 39.1,
+   "mt_final_p90_ms": 52.4,
+   "mt_preview_ms": 38.3,
+   "llm_first_token_ms": null,
+   "utterances": 12,
+   "previews": 65,
+   "commits": 115,
+   "mt_failures": 0,
+   "fallback_lines": 0,
+   "backlog_sec": 0.0,
+   "backlog_max_sec": 0.25,
+   "drops": 0,
+   "backlog_dropped_sec": 0.0,
+   "capture_dropped_blocks": 0,
+   "capture_dropped_sec": 0.0,
+   "device_reopens": 0,
+   "recoveries": 0,
+   "eager_endpoints": 0,
+   "passes_reused": 12,
+   "deferred_closes": 1,
+   "revised_lines": 8,
+   "tail_drops": 0,
+   "pause_splits": 9,
+   "stall_splits": 0,
+   "speakers": 0,
+   "gpu_mem_used_mib": 8544,
+   "gpu_mem_total_mib": 16376,
+   "gpu_util_pct": 38,
+   "process_rss_mib": 1167,
+   "mt_calls": {
+    "n": 77,
+    "mean_ms": 38.4,
+    "p50_ms": 32.7,
+    "p90_ms": 64.5,
+    "max_ms": 132.1,
+    "first_token_mean_ms": null
+   }
+  },
+  "02_conversational": {
+   "uptime_sec": 86.0,
+   "keeping_up": true,
+   "health": "Keeping up with real time",
+   "engine": "Kotoba-Whisper v2.0 on cuda (float16)",
+   "translator": "Sugoi v4",
+   "device_name": "replay: 02_conversational",
+   "capture_latency_ms": 0.3,
+   "capture_latency_max_ms": 15.9,
+   "passes": 268,
+   "mean_pass_ms": 147.1,
+   "p90_pass_ms": 187.2,
+   "last_pass_ms": 132.6,
+   "average_pass_ms": 144.0,
+   "rtf": 0.516,
+   "audio_sec": 83.9,
+   "speech_sec": 74.7,
+   "source_lag_sec": 0.57,
+   "source_lag_p90_sec": 0.688,
+   "preview_latency_sec": 1.172,
+   "final_latency_sec": 0.839,
+   "final_latency_p90_sec": 2.289,
+   "final_latency_mean_sec": 1.207,
+   "mt_final_ms": 49.1,
+   "mt_final_p90_ms": 94.4,
+   "mt_preview_ms": 54.2,
+   "llm_first_token_ms": null,
+   "utterances": 24,
+   "previews": 107,
+   "commits": 152,
+   "mt_failures": 0,
+   "fallback_lines": 0,
+   "backlog_sec": 0.0,
+   "backlog_max_sec": 0.33,
+   "drops": 0,
+   "backlog_dropped_sec": 0.0,
+   "capture_dropped_blocks": 0,
+   "capture_dropped_sec": 0.0,
+   "device_reopens": 0,
+   "recoveries": 0,
+   "eager_endpoints": 0,
+   "passes_reused": 16,
+   "deferred_closes": 5,
+   "revised_lines": 36,
+   "tail_drops": 0,
+   "pause_splits": 9,
+   "stall_splits": 1,
+   "speakers": 0,
+   "gpu_mem_used_mib": 8576,
+   "gpu_mem_total_mib": 16376,
+   "gpu_util_pct": 58,
+   "process_rss_mib": 1177,
+   "mt_calls": {
+    "n": 131,
+    "mean_ms": 53.3,
+    "p50_ms": 38.3,
+    "p90_ms": 94.5,
+    "max_ms": 212.3,
+    "first_token_mean_ms": null
+   }
+  },
+  "03_fast": {
+   "uptime_sec": 81.0,
+   "keeping_up": true,
+   "health": "Keeping up with real time",
+   "engine": "Kotoba-Whisper v2.0 on cuda (float16)",
+   "translator": "Sugoi v4",
+   "device_name": "replay: 03_fast",
+   "capture_latency_ms": 0.4,
+   "capture_latency_max_ms": 15.5,
+   "passes": 262,
+   "mean_pass_ms": 147.2,
+   "p90_pass_ms": 188.6,
+   "last_pass_ms": 155.7,
+   "average_pass_ms": 143.7,
+   "rtf": 0.51,
+   "audio_sec": 78.9,
+   "speech_sec": 73.8,
+   "source_lag_sec": 0.552,
+   "source_lag_p90_sec": 0.655,
+   "preview_latency_sec": 1.054,
+   "final_latency_sec": 0.648,
+   "final_latency_p90_sec": 2.043,
+   "final_latency_mean_sec": 0.98,
+   "mt_final_ms": 58.2,
+   "mt_final_p90_ms": 112.3,
+   "mt_preview_ms": 57.4,
+   "llm_first_token_ms": null,
+   "utterances": 20,
+   "previews": 99,
+   "commits": 166,
+   "mt_failures": 0,
+   "fallback_lines": 0,
+   "backlog_sec": 0.0,
+   "backlog_max_sec": 0.28,
+   "drops": 0,
+   "backlog_dropped_sec": 0.0,
+   "capture_dropped_blocks": 0,
+   "capture_dropped_sec": 0.0,
+   "device_reopens": 0,
+   "recoveries": 0,
+   "eager_endpoints": 0,
+   "passes_reused": 16,
+   "deferred_closes": 9,
+   "revised_lines": 23,
+   "tail_drops": 0,
+   "pause_splits": 15,
+   "stall_splits": 2,
+   "speakers": 0,
+   "gpu_mem_used_mib": 8268,
+   "gpu_mem_total_mib": 16376,
+   "gpu_util_pct": 40,
+   "process_rss_mib": 1182,
+   "mt_calls": {
+    "n": 119,
+    "mean_ms": 57.5,
+    "p50_ms": 44.6,
+    "p90_ms": 142.6,
+    "max_ms": 213.1,
+    "first_token_mean_ms": null
+   }
+  },
+  "04_multi_speaker": {
+   "uptime_sec": 58.9,
+   "keeping_up": true,
+   "health": "Keeping up with real time",
+   "engine": "Kotoba-Whisper v2.0 on cuda (float16)",
+   "translator": "Sugoi v4",
+   "device_name": "replay: 04_multi_speaker",
+   "capture_latency_ms": 1.2,
+   "capture_latency_max_ms": 31.3,
+   "passes": 170,
+   "mean_pass_ms": 137.9,
+   "p90_pass_ms": 180.2,
+   "last_pass_ms": 160.4,
+   "average_pass_ms": 137.9,
+   "rtf": 0.468,
+   "audio_sec": 56.8,
+   "speech_sec": 50.0,
+   "source_lag_sec": 0.542,
+   "source_lag_p90_sec": 0.657,
+   "preview_latency_sec": 1.0,
+   "final_latency_sec": 0.5,
+   "final_latency_p90_sec": 0.853,
+   "final_latency_mean_sec": 0.544,
+   "mt_final_ms": 40.3,
+   "mt_final_p90_ms": 62.4,
+   "mt_preview_ms": 43.2,
+   "llm_first_token_ms": null,
+   "utterances": 17,
+   "previews": 63,
+   "commits": 105,
+   "mt_failures": 0,
+   "fallback_lines": 0,
+   "backlog_sec": 0.0,
+   "backlog_max_sec": 0.27,
+   "drops": 0,
+   "backlog_dropped_sec": 0.0,
+   "capture_dropped_blocks": 0,
+   "capture_dropped_sec": 0.0,
+   "device_reopens": 0,
+   "recoveries": 0,
+   "eager_endpoints": 0,
+   "passes_reused": 16,
+   "deferred_closes": 4,
+   "revised_lines": 4,
+   "tail_drops": 0,
+   "pause_splits": 13,
+   "stall_splits": 0,
+   "speakers": 0,
+   "gpu_mem_used_mib": 8277,
+   "gpu_mem_total_mib": 16376,
+   "gpu_util_pct": 35,
+   "process_rss_mib": 1185,
+   "mt_calls": {
+    "n": 80,
+    "mean_ms": 42.6,
+    "p50_ms": 29.5,
+    "p90_ms": 112.4,
+    "max_ms": 147.8,
+    "first_token_mean_ms": null
+   }
+  },
+  "05_casual_slang": {
+   "uptime_sec": 96.4,
+   "keeping_up": true,
+   "health": "Keeping up with real time",
+   "engine": "Kotoba-Whisper v2.0 on cuda (float16)",
+   "translator": "Sugoi v4",
+   "device_name": "replay: 05_casual_slang",
+   "capture_latency_ms": 0.9,
+   "capture_latency_max_ms": 33.6,
+   "passes": 267,
+   "mean_pass_ms": 139.6,
+   "p90_pass_ms": 184.8,
+   "last_pass_ms": 221.3,
+   "average_pass_ms": 137.1,
+   "rtf": 0.449,
+   "audio_sec": 94.2,
+   "speech_sec": 81.6,
+   "source_lag_sec": 0.553,
+   "source_lag_p90_sec": 0.683,
+   "preview_latency_sec": 1.089,
+   "final_latency_sec": 0.603,
+   "final_latency_p90_sec": 1.123,
+   "final_latency_mean_sec": 0.684,
+   "mt_final_ms": 33.9,
+   "mt_final_p90_ms": 56.0,
+   "mt_preview_ms": 36.6,
+   "llm_first_token_ms": null,
+   "utterances": 29,
+   "previews": 90,
+   "commits": 160,
+   "mt_failures": 0,
+   "fallback_lines": 0,
+   "backlog_sec": 0.0,
+   "backlog_max_sec": 0.26,
+   "drops": 0,
+   "backlog_dropped_sec": 0.0,
+   "capture_dropped_blocks": 0,
+   "capture_dropped_sec": 0.0,
+   "device_reopens": 0,
+   "recoveries": 0,
+   "eager_endpoints": 0,
+   "passes_reused": 29,
+   "deferred_closes": 11,
+   "revised_lines": 5,
+   "tail_drops": 0,
+   "pause_splits": 15,
+   "stall_splits": 0,
+   "speakers": 0,
+   "gpu_mem_used_mib": 8266,
+   "gpu_mem_total_mib": 16376,
+   "gpu_util_pct": 39,
+   "process_rss_mib": 1189,
+   "mt_calls": {
+    "n": 120,
+    "mean_ms": 35.9,
+    "p50_ms": 28.2,
+    "p90_ms": 61.9,
+    "max_ms": 155.0,
+    "first_token_mean_ms": null
+   }
+  },
+  "06_background_music": {
+   "uptime_sec": 85.5,
+   "keeping_up": true,
+   "health": "Keeping up with real time",
+   "engine": "Kotoba-Whisper v2.0 on cuda (float16)",
+   "translator": "Sugoi v4",
+   "device_name": "replay: 06_background_music",
+   "capture_latency_ms": 0.6,
+   "capture_latency_max_ms": 29.7,
+   "passes": 281,
+   "mean_pass_ms": 141.6,
+   "p90_pass_ms": 187.2,
+   "last_pass_ms": 131.4,
+   "average_pass_ms": 141.7,
+   "rtf": 0.504,
+   "audio_sec": 83.4,
+   "speech_sec": 79.1,
+   "source_lag_sec": 0.605,
+   "source_lag_p90_sec": 0.739,
+   "preview_latency_sec": 1.258,
+   "final_latency_sec": 0.84,
+   "final_latency_p90_sec": 2.707,
+   "final_latency_mean_sec": 1.25,
+   "mt_final_ms": 55.5,
+   "mt_final_p90_ms": 134.6,
+   "mt_preview_ms": 48.0,
+   "llm_first_token_ms": null,
+   "utterances": 22,
+   "previews": 103,
+   "commits": 156,
+   "mt_failures": 0,
+   "fallback_lines": 0,
+   "backlog_sec": 0.0,
+   "backlog_max_sec": 0.31,
+   "drops": 0,
+   "backlog_dropped_sec": 0.0,
+   "capture_dropped_blocks": 0,
+   "capture_dropped_sec": 0.0,
+   "device_reopens": 0,
+   "recoveries": 0,
+   "eager_endpoints": 0,
+   "passes_reused": 11,
+   "deferred_closes": 4,
+   "revised_lines": 33,
+   "tail_drops": 0,
+   "pause_splits": 6,
+   "stall_splits": 4,
+   "speakers": 0,
+   "gpu_mem_used_mib": 8278,
+   "gpu_mem_total_mib": 16376,
+   "gpu_util_pct": 39,
+   "process_rss_mib": 1190,
+   "mt_calls": {
+    "n": 125,
+    "mean_ms": 49.3,
+    "p50_ms": 36.2,
+    "p90_ms": 98.2,
+    "max_ms": 183.1,
+    "first_token_mean_ms": null
+   }
+  },
+  "07_pauses": {
+   "uptime_sec": 91.7,
+   "keeping_up": true,
+   "health": "Keeping up with real time",
+   "engine": "Kotoba-Whisper v2.0 on cuda (float16)",
+   "translator": "Sugoi v4",
+   "device_name": "replay: 07_pauses",
+   "capture_latency_ms": 1.4,
+   "capture_latency_max_ms": 30.2,
+   "passes": 163,
+   "mean_pass_ms": 159.3,
+   "p90_pass_ms": 238.3,
+   "last_pass_ms": 239.1,
+   "average_pass_ms": 159.3,
+   "rtf": 0.533,
+   "audio_sec": 89.5,
+   "speech_sec": 48.7,
+   "source_lag_sec": 0.572,
+   "source_lag_p90_sec": 0.727,
+   "preview_latency_sec": 1.025,
+   "final_latency_sec": 0.758,
+   "final_latency_p90_sec": 1.257,
+   "final_latency_mean_sec": 0.865,
+   "mt_final_ms": 39.6,
+   "mt_final_p90_ms": 60.8,
+   "mt_preview_ms": 74.7,
+   "llm_first_token_ms": null,
+   "utterances": 17,
+   "previews": 60,
+   "commits": 107,
+   "mt_failures": 0,
+   "fallback_lines": 0,
+   "backlog_sec": 0.0,
+   "backlog_max_sec": 0.39,
+   "drops": 0,
+   "backlog_dropped_sec": 0.0,
+   "capture_dropped_blocks": 0,
+   "capture_dropped_sec": 0.0,
+   "device_reopens": 0,
+   "recoveries": 0,
+   "eager_endpoints": 0,
+   "passes_reused": 12,
+   "deferred_closes": 8,
+   "revised_lines": 7,
+   "tail_drops": 0,
+   "pause_splits": 7,
+   "stall_splits": 0,
+   "speakers": 0,
+   "gpu_mem_used_mib": 9412,
+   "gpu_mem_total_mib": 16376,
+   "gpu_util_pct": 46,
+   "process_rss_mib": 1200,
+   "mt_calls": {
+    "n": 77,
+    "mean_ms": 67.0,
+    "p50_ms": 35.4,
+    "p90_ms": 207.2,
+    "max_ms": 291.1,
+    "first_token_mean_ms": null
+   }
+  },
+  "08_long_continuous": {
+   "uptime_sec": 241.0,
+   "keeping_up": true,
+   "health": "Keeping up with real time",
+   "engine": "Kotoba-Whisper v2.0 on cuda (float16)",
+   "translator": "Sugoi v4",
+   "device_name": "replay: 08_long_continuous",
+   "capture_latency_ms": 1.0,
+   "capture_latency_max_ms": 30.7,
+   "passes": 720,
+   "mean_pass_ms": 262.8,
+   "p90_pass_ms": 319.1,
+   "last_pass_ms": 322.5,
+   "average_pass_ms": 238.3,
+   "rtf": 0.765,
+   "audio_sec": 238.9,
+   "speech_sec": 224.3,
+   "source_lag_sec": 0.725,
+   "source_lag_p90_sec": 0.868,
+   "preview_latency_sec": 1.369,
+   "final_latency_sec": 0.911,
+   "final_latency_p90_sec": 2.949,
+   "final_latency_mean_sec": 1.299,
+   "mt_final_ms": 128.6,
+   "mt_final_p90_ms": 300.3,
+   "mt_preview_ms": 196.4,
+   "llm_first_token_ms": null,
+   "utterances": 75,
+   "previews": 279,
+   "commits": 434,
+   "mt_failures": 0,
+   "fallback_lines": 0,
+   "backlog_sec": 0.0,
+   "backlog_max_sec": 0.62,
+   "drops": 0,
+   "backlog_dropped_sec": 0.0,
+   "capture_dropped_blocks": 0,
+   "capture_dropped_sec": 0.0,
+   "device_reopens": 0,
+   "recoveries": 0,
+   "eager_endpoints": 0,
+   "passes_reused": 38,
+   "deferred_closes": 20,
+   "revised_lines": 43,
+   "tail_drops": 0,
+   "pause_splits": 41,
+   "stall_splits": 9,
+   "speakers": 0,
+   "gpu_mem_used_mib": 9917,
+   "gpu_mem_total_mib": 16376,
+   "gpu_util_pct": 59,
+   "process_rss_mib": 1221,
+   "mt_calls": {
+    "n": 360,
+    "mean_ms": 165.5,
+    "p50_ms": 176.1,
+    "p90_ms": 301.9,
+    "max_ms": 506.7,
+    "first_token_mean_ms": null
+   }
+  }
+ },
+ "transcripts": {
+  "01_slow_clear": {
+   "finals": [
+    {
+     "t": 4.046,
+     "source": "水をマレーシアから買わなくてはならないのです",
+     "english": "We have to buy water from Malaysia."
+    },
+    {
+     "t": 10.142,
+     "source": "木曜日、停戦会談は何の進展もないまま終了しました。",
+     "english": "Thursday, the ceasefire meeting ended without any progress."
+    },
+    {
+     "t": 15.254,
+     "source": "上院議員は私がデータをゆがめたと告発した",
+     "english": "The senator accused me of distorting the data."
+    },
+    {
+     "t": 19.89,
+     "source": "1週間してそのニュースは本当になった",
+     "english": "After a week, the news really got out."
+    },
+    {
+     "t": 24.732,
+     "source": "血圧は健康のパロメーターとして重要である",
+     "english": "Blood pressure is important as a health parometer."
+    },
+    {
+     "t": 28.804,
+     "source": "週に4回フランスの授業があります",
+     "english": "Four French classes a week."
+    },
+    {
+     "t": 32.374,
+     "source": "許可書がなければここへは入れない",
+     "english": "You can't get in here without a permit."
+    },
+    {
+     "t": 37.824,
+     "source": "大声で泣きながら女の子は母親を探していた",
+     "english": "Crying loudly, the girl searched for her mother"
+    },
+    {
+     "t": 43.193,
+     "source": "無罪の人々はもちろん放免された",
+     "english": "The innocent were, of course, released."
+    },
+    {
+     "t": 48.789,
+     "source": "末期試験に備えて本当に気合を入れて勉強しなきゃ",
+     "english": "I really need to study hard in preparation for the final exam."
+    },
+    {
+     "t": 53.643,
+     "source": "基礎側はしばしば日本のライン川と呼ばれている",
+     "english": "The foundation side is often called the Rhine of Japan."
+    },
+    {
+     "t": 58.221,
+     "source": "溺れかかっていた乗客は全て救助された",
+     "english": "All the drowning passengers were rescued."
+    }
+   ],
+   "statuses": []
+  },
+  "02_conversational": {
+   "finals": [
+    {
+     "t": 2.492,
+     "source": "ちょっと見ていきましょう",
+     "english": "Let's take a look."
+    },
+    {
+     "t": 6.28,
+     "source": "大橋さんはやっぱり大変でしたか",
+     "english": "Oohashisan must have had a hard time after all."
+    },
+    {
+     "t": 12.137,
+     "source": "今朝の東京、風",
+     "english": "Tokyo this morning, the wind."
+    },
+    {
+     "t": 12.666,
+     "source": "はなさそうですけどね、体感はどうでしょうか、近藤さん。",
+     "english": "It doesn't seem like it. How do you feel, Kondou?"
+    },
+    {
+     "t": 14.983,
+     "source": "ですねこれが一番大事だと思います",
+     "english": "Yes, I think that's the most important thing."
+    },
+    {
+     "t": 19.104,
+     "source": "これスマホの懐中電灯モードです",
+     "english": "This is my phone's flashlight mode."
+    },
+    {
+     "t": 24.538,
+     "source": "いやでも",
+     "english": "No, but..."
+    },
+    {
+     "t": 25.895,
+     "source": "一方でこういう知識をしっかり整頓しておいて自分が感染させないかなとかどうやったら感染し",
+     "english": "On the other hand, if you keep all this knowledge in order and don't want to infect yourself, how do you get infected?"
+    },
+    {
+     "t": 30.99,
+     "source": "ないようになるかなってことを頭に入れておくということがこういう検定を通して大切なのかもし",
+     "english": "Is it important to keep in mind that there won't be any through these tests?"
+    },
+    {
+     "t": 31.067,
+     "source": "れないですね",
+     "english": "I don't think so."
+    },
+    {
+     "t": 33.619,
+     "source": "けどこんな感じで",
+     "english": "But like this..."
+    },
+    {
+     "t": 39.699,
+     "source": "やっぱり高橋さんの一緒に写真撮りましょうよって言われた時のどうぞ",
+     "english": "When you asked me to take a picture with takahashisan"
+    },
+    {
+     "t": 42.782,
+     "source": "聞いたんですけど。",
+     "english": "I heard about it."
+    },
+    {
+     "t": 46.147,
+     "source": "あの時ハワイ行った時に時差ボケで",
+     "english": "When I went to Hawaii that time, I was jet lag."
+    },
+    {
+     "t": 49.826,
+     "source": "海行ったりすると紫外線当たると余計やすいって聞いたことあるんですそれって本当ですか",
+     "english": "I've heard that when you go to the ocean, it's even easier if you get ultraviolet rays. Is that true?"
+    },
+    {
+     "t": 54.706,
+     "source": "かなり広い範囲で爆発音というのは聞かれているようです",
+     "english": "They seem to have heard explosions over a fairly wide area."
+    },
+    {
+     "t": 57.68,
+     "source": "だからどんなことにも耐えられます",
+     "english": "So I can put up with anything."
+    },
+    {
+     "t": 60.028,
+     "source": "本当ですよね",
+     "english": "It's true, right?"
+    },
+    {
+     "t": 67.203,
+     "source": "ありますし例えば女優さんとかと写真撮った時にレタッチしてくださいって",
+     "english": "And when I took a picture with an actress, for example, she asked me to retouch it."
+    },
+    {
+     "t": 70.433,
+     "source": "言われて分かりました。",
+     "english": "Now that you mention it, I understand."
+    },
+    {
+     "t": 70.884,
+     "source": "持ち帰って送った",
+     "english": "I took it home and sent it."
+    },
+    {
+     "t": 72.1,
+     "source": "ら。",
+     "english": "Ra."
+    },
+    {
+     "t": 76.15,
+     "source": "変身が来てちょっと加工しすぎなので戻して",
+     "english": "The transformation came and I processed it a little too much, so put it back"
+    },
+    {
+     "t": 79.032,
+     "source": "そうかわけ分かんなくなっちゃう",
+     "english": "I see. I don't get it anymore."
+    }
+   ],
+   "statuses": []
+  },
+  "03_fast": {
+   "finals": [
+    {
+     "t": 5.976,
+     "source": "住民によると過去にも",
+     "english": "According to the residents, in the past"
+    },
+    {
+     "t": 7.378,
+     "source": "似たような訪問があったといいます",
+     "english": "They say there was a similar visit."
+    },
+    {
+     "t": 9.822,
+     "source": "ってそんなことないか",
+     "english": "Wait, that's not true."
+    },
+    {
+     "t": 12.373,
+     "source": "金星さんはそんなに若くないもんね",
+     "english": "You're not that young, after all."
+    },
+    {
+     "t": 16.893,
+     "source": "でも本当よく似てる",
+     "english": "But they really do look alike."
+    },
+    {
+     "t": 22.977,
+     "source": "消費も少しずつ回復の兆しが見える中今年の日本経済はどうなるのか",
+     "english": "While consumption is showing signs of recovery bit by bit, what will happen to the Japanese economy this year?"
+    },
+    {
+     "t": 27.541,
+     "source": "男性は警察に通報し病院に搬送されました",
+     "english": "The man called the police and was taken to a hospital."
+    },
+    {
+     "t": 29.743,
+     "source": "クリアシー気持ちわてる",
+     "english": "Clearsey, I'm in a hurry."
+    },
+    {
+     "t": 30.683,
+     "source": "ごめんな",
+     "english": "I'm sorry."
+    },
+    {
+     "t": 36.198,
+     "source": "名前とかはなんととなく覚えてるんだけどそれ以外はよく思い出せないみたい",
+     "english": "I kind of remember her name and stuff, but it seems like she can't really remember anything else."
+    },
+    {
+     "t": 42.993,
+     "source": "台風や大雨に関する情報はNHKニュース防災アプリでもお伝えして",
+     "english": "If you have any information on typhoons or heavy rain, please report it to the N.H.K. News Disaster Prevention app"
+    },
+    {
+     "t": 44.158,
+     "source": "います昨昨日、カエレの公用の発表がありました",
+     "english": "I'm here. There was an official announcement from kaere yesterday."
+    },
+    {
+     "t": 49.734,
+     "source": "何も覚えてないんだ",
+     "english": "I don't remember anything."
+    },
+    {
+     "t": 54.825,
+     "source": "そもそも本当に7年経ったのかどうかも分かんないし",
+     "english": "I don’t even know if it’s really been seven years in the first place"
+    },
+    {
+     "t": 59.491,
+     "source": "昨日自分好みに画面をカスタマイズできることで人気のツイッター閲覧アプリフェザーが",
+     "english": "Yesterday, there was a popular Twitter viewing app called Feather that allowed you to customize the screen to your liking"
+    },
+    {
+     "t": 60.602,
+     "source": "使用できなくなったと発表されました",
+     "english": "It was announced that they were no longer usable."
+    },
+    {
+     "t": 65.857,
+     "source": "いいと思いますオーストラリアの新規感染者数がおととい今年に入って最多と",
+     "english": "I think that's good. Australia has the highest number of new Infected the year before last."
+    },
+    {
+     "t": 67.908,
+     "source": "なる44人の感染が確認されました",
+     "english": "44 confirmed to be infected."
+    },
+    {
+     "t": 73.123,
+     "source": "対策強化に向けて法制審議会の部会は",
+     "english": "To strengthen countermeasures, the members of the Legislature Council"
+    },
+    {
+     "t": 74.593,
+     "source": "処罰する罪の公定刑の上限を引き上げる要項案をまとめました",
+     "english": "I've put together a basic plan to raise the maximum sentence for punishment."
+    }
+   ],
+   "statuses": []
+  },
+  "04_multi_speaker": {
+   "finals": [
+    {
+     "t": 6.783,
+     "source": "歯が痛いので口を開けることができません",
+     "english": "My teeth hurt, so I can't open my mouth."
+    },
+    {
+     "t": 10.137,
+     "source": "週に4回フランスの授業があります",
+     "english": "Four French classes a week."
+    },
+    {
+     "t": 15.529,
+     "source": "この動画ハプニングを装ってるけど仕込んでるのがバレバレ",
+     "english": "I'm pretending this video is happening, but it's obvious that I've been trained."
+    },
+    {
+     "t": 19.098,
+     "source": "ひょっとしてこれって記憶喪失?",
+     "english": "Could this be amnesia?"
+    },
+    {
+     "t": 20.692,
+     "source": "行きの日は出かけません",
+     "english": "I don't go out on my day off."
+    },
+    {
+     "t": 22.145,
+     "source": "そう思う",
+     "english": "I think so."
+    },
+    {
+     "t": 25.489,
+     "source": "この大学アメリカイギリスどっちだっけ",
+     "english": "This university, america, england. Which one was it again?"
+    },
+    {
+     "t": 27.06,
+     "source": "ありがとう",
+     "english": "Thank you."
+    },
+    {
+     "t": 28.243,
+     "source": "これで結構です",
+     "english": "That's enough."
+    },
+    {
+     "t": 30.412,
+     "source": "それが一番大事だと思います",
+     "english": "I think that's the most important thing."
+    },
+    {
+     "t": 33.179,
+     "source": "そんな演出意と誰もわからないよ",
+     "english": "I don't know what you mean by that."
+    },
+    {
+     "t": 36.452,
+     "source": "これは日本で売っていない食べ物です。",
+     "english": "This is not for sale in Japan."
+    },
+    {
+     "t": 39.033,
+     "source": "なんだかおなかすいちゃったね",
+     "english": "I'm kind of hungry."
+    },
+    {
+     "t": 42.562,
+     "source": "元気一過ぎて普通の人には理解できなくなった",
+     "english": "She was so energetic that normal people couldn't understand her anymore."
+    },
+    {
+     "t": 46.491,
+     "source": "コーヒーが飲みたいんじゃなくて落ち着いた場所で休みたいんだよ",
+     "english": "I don't want to drink coffee, but rather rest in a calm place."
+    },
+    {
+     "t": 49.723,
+     "source": "今日の月はとりわけきれいだ",
+     "english": "The moon is especially beautiful today."
+    },
+    {
+     "t": 52.438,
+     "source": "チャンネルを変えることなくテレビを見ていた",
+     "english": "I was watching tv without changing the channel."
+    }
+   ],
+   "statuses": []
+  },
+  "05_casual_slang": {
+   "finals": [
+    {
+     "t": 2.294,
+     "source": "私",
+     "english": "I..."
+    },
+    {
+     "t": 5.559,
+     "source": "なんで何も覚えてないのかな?",
+     "english": "Why don't you remember anything?"
+    },
+    {
+     "t": 9.044,
+     "source": "ひょっとしてこれで記憶喪失?",
+     "english": "Could this be amnesia?"
+    },
+    {
+     "t": 12.34,
+     "source": "こんな立派なマンションに住んでるんだね",
+     "english": "I didn't know you lived in such a fancy apartment."
+    },
+    {
+     "t": 14.56,
+     "source": "えっと",
+     "english": "Let's see..."
+    },
+    {
+     "t": 16.555,
+     "source": "何さんだっけ",
+     "english": "What was it again?"
+    },
+    {
+     "t": 17.845,
+     "source": "そんなの?",
+     "english": "That's what it is?"
+    },
+    {
+     "t": 19.732,
+     "source": "それはすごいね",
+     "english": "That's amazing."
+    },
+    {
+     "t": 21.504,
+     "source": "っていうか",
+     "english": "Or rather..."
+    },
+    {
+     "t": 23.964,
+     "source": "リシアちゃんはお嬢様なの?",
+     "english": "Are you a young lady, Liscia?"
+    },
+    {
+     "t": 26.088,
+     "source": "メイドさんを連れてるけど",
+     "english": "I have a maid with me."
+    },
+    {
+     "t": 29.032,
+     "source": "完全にかもじゃねえか?",
+     "english": "Isn't it completely possible?"
+    },
+    {
+     "t": 32.609,
+     "source": "そうさせてもらいます",
+     "english": "I'll do just that."
+    },
+    {
+     "t": 36.297,
+     "source": "ていうか十分リラックスしてますよ",
+     "english": "Actually, I'm plenty relaxed."
+    },
+    {
+     "t": 40.544,
+     "source": "しろたまちゃんもかわいいしそりゃね",
+     "english": "Shirotamachan's cute too, of course."
+    },
+    {
+     "t": 46.211,
+     "source": "こんなにかわいくて一生懸命な子が嘘つくわけないしそっか",
+     "english": "There's no way a girl this cute and hard at work would lie, I see."
+    },
+    {
+     "t": 47.941,
+     "source": "ーすんね",
+     "english": "- Yeah, yeah."
+    },
+    {
+     "t": 51.764,
+     "source": "私のこといろいろ聞こうかと思ったのに",
+     "english": "I was going to ask you a lot of questions about me."
+    },
+    {
+     "t": 53.43,
+     "source": "じゃあいいです",
+     "english": "Then it's fine."
+    },
+    {
+     "t": 55.492,
+     "source": "2人は付き合ってるの?",
+     "english": "Are you two dating?"
+    },
+    {
+     "t": 58.371,
+     "source": "やっぱりそうなんだね",
+     "english": "I knew it."
+    },
+    {
+     "t": 60.675,
+     "source": "いい雰囲気だもんね",
+     "english": "It's a nice atmosphere, after all."
+    },
+    {
+     "t": 62.109,
+     "source": "へえ",
+     "english": "Wow, that's pretty cool."
+    },
+    {
+     "t": 68.487,
+     "source": "最近の若者はすごいね",
+     "english": "Young people these days are amazing."
+    },
+    {
+     "t": 70.424,
+     "source": "おいそうだ",
+     "english": "Hey, that looks good."
+    },
+    {
+     "t": 73.849,
+     "source": "よね受け入れるには時間が必要だもんね",
+     "english": "Right? It takes time to accept it."
+    },
+    {
+     "t": 79.872,
+     "source": "ごめんなさいここに来れば何か思い出すかと思ったんだけど",
+     "english": "Sorry, I thought you'd remember something if you came here."
+    },
+    {
+     "t": 83.788,
+     "source": "また明日何か思い出したら言うね",
+     "english": "I'll let you know if I remember anything tomorrow."
+    },
+    {
+     "t": 89.324,
+     "source": "この動画ハプニングを装ってるけど仕込んでるのがバレバレ",
+     "english": "I'm pretending this video is happening, but it's obvious that I've been trained."
+    }
+   ],
+   "statuses": []
+  },
+  "06_background_music": {
+   "finals": [
+    {
+     "t": 2.589,
+     "source": "ちょっと見ていきましょう",
+     "english": "Let's take a look."
+    },
+    {
+     "t": 4.721,
+     "source": "おはよう",
+     "english": "Good morning."
+    },
+    {
+     "t": 6.324,
+     "source": "はやっぱり大変でしたか",
+     "english": "I guess it was tough after all."
+    },
+    {
+     "t": 11.904,
+     "source": "今朝の東京、風はなさそうですけどね、体感はどうでしょうか、",
+     "english": "There doesn't seem to be any wind in Tokyo this morning. How do you feel?"
+    },
+    {
+     "t": 12.533,
+     "source": "近藤さん。",
+     "english": "Kondousan."
+    },
+    {
+     "t": 15.136,
+     "source": "それが一番大事だと思います",
+     "english": "I think that's the most important thing."
+    },
+    {
+     "t": 19.008,
+     "source": "これスマホの懐中電灯モードです",
+     "english": "This is my phone's flashlight mode."
+    },
+    {
+     "t": 24.613,
+     "source": "いやでも一方でこういう知識をしっかり整頓しておいて自分が",
+     "english": "But on the other hand, if you keep this knowledge in order"
+    },
+    {
+     "t": 28.685,
+     "source": "感染させないかなとかどうやったら感染しないようになるかなってことを頭に入れておくということが",
+     "english": "It's important to keep in mind how you might infect them and how they won't get infected."
+    },
+    {
+     "t": 31.271,
+     "source": "こういう検定を通して大切なのかもしれないですね。",
+     "english": "It might be important through these tests."
+    },
+    {
+     "t": 33.623,
+     "source": "けどこんな感じで",
+     "english": "But like this..."
+    },
+    {
+     "t": 40.221,
+     "source": "高橋さんの一緒に写真撮りましょうよって言われた時のあの。",
+     "english": "When you asked me to take a picture with takahashisan."
+    },
+    {
+     "t": 44.654,
+     "source": "僕聞いたんですけどあの",
+     "english": "I heard about it, but..."
+    },
+    {
+     "t": 46.977,
+     "source": "時差ハワイ行った時に時差ボケで",
+     "english": "When I went to time difference hawaii, I was jet lag."
+    },
+    {
+     "t": 49.919,
+     "source": "海行ったりすると紫外線当たると余計やすいって聞いたことあるんですそれって本当ですか",
+     "english": "I've heard that when you go to the ocean, it's even easier if you get ultraviolet rays. Is that true?"
+    },
+    {
+     "t": 54.508,
+     "source": "かなり広い範囲で爆発音というのは聞かれていらっしゃるようです",
+     "english": "It seems they've heard explosions over a very wide area."
+    },
+    {
+     "t": 57.436,
+     "source": "だからどんなことにも耐えられます",
+     "english": "So I can put up with anything."
+    },
+    {
+     "t": 59.905,
+     "source": "本当ですよね",
+     "english": "It's true, right?"
+    },
+    {
+     "t": 66.761,
+     "source": "ありますし例えば女優さんとかと写真撮った時にレタッチしてくださいって",
+     "english": "And when I took a picture with an actress, for example, she asked me to retouch it."
+    },
+    {
+     "t": 70.355,
+     "source": "言われて分かって持ち帰って送った",
+     "english": "When he told me to, I understood and sent it home."
+    },
+    {
+     "t": 76.042,
+     "source": "ら 変身が来てちょっと加工しすぎなので戻してます。",
+     "english": "I've been working on it a little too much since the transformation came, so I put it back."
+    },
+    {
+     "t": 78.775,
+     "source": "ハハ",
+     "english": "Haha."
+    }
+   ],
+   "statuses": []
+  },
+  "07_pauses": {
+   "finals": [
+    {
+     "t": 7.302,
+     "source": "木曜日、停戦会談は",
+     "english": "Thursday, the ceasefire meeting"
+    },
+    {
+     "t": 10.183,
+     "source": "何の進展もないまま終了しました",
+     "english": "It ended without any progress."
+    },
+    {
+     "t": 12.62,
+     "source": "ごめんなさい",
+     "english": "I'm sorry."
+    },
+    {
+     "t": 18.164,
+     "source": "名前と顔はなんとなく覚えてるんだけど",
+     "english": "I kind of remember his name and face, though."
+    },
+    {
+     "t": 19.177,
+     "source": "それ以外はよく思い出せないみたい",
+     "english": "Other than that, he doesn't seem to remember much."
+    },
+    {
+     "t": 27.7,
+     "source": "大声で泣きながら",
+     "english": "She cried loudly"
+    },
+    {
+     "t": 30.834,
+     "source": "女の子は母親を探していた",
+     "english": "The girl was looking for her mother."
+    },
+    {
+     "t": 37.783,
+     "source": "今朝の東京、風はなさそうですけどね、体感はどうでしょうか、",
+     "english": "There doesn't seem to be any wind in Tokyo this morning. How do you feel?"
+    },
+    {
+     "t": 38.138,
+     "source": "近藤さん。",
+     "english": "Kondousan."
+    },
+    {
+     "t": 50.803,
+     "source": "牧試験に備えて本当に気合を入れて勉強しなきゃ",
+     "english": "I really need to study hard in preparation for the pasture exams."
+    },
+    {
+     "t": 53.903,
+     "source": "マンションに住んでるんだね",
+     "english": "You live in an apartment."
+    },
+    {
+     "t": 56.542,
+     "source": "えっと",
+     "english": "Let's see..."
+    },
+    {
+     "t": 58.927,
+     "source": "何さんだっけ",
+     "english": "What was it again?"
+    },
+    {
+     "t": 68.726,
+     "source": "どうしてたの?って言われても",
+     "english": "What were you doing? Even if you say that..."
+    },
+    {
+     "t": 72.526,
+     "source": "ごめんね何にも覚えてないんだ",
+     "english": "Sorry, I don't remember anything."
+    },
+    {
+     "t": 77.688,
+     "source": "そもそも本当に7年経ったのかどうかも分かんないし",
+     "english": "I don’t even know if it’s really been seven years in the first place"
+    },
+    {
+     "t": 80.48,
+     "source": "だからどんなことにも耐えられます",
+     "english": "So I can put up with anything."
+    }
+   ],
+   "statuses": []
+  },
+  "08_long_continuous": {
+   "finals": [
+    {
+     "t": 2.876,
+     "source": "ちょっと見ていきましょう",
+     "english": "Let's take a look."
+    },
+    {
+     "t": 5.852,
+     "source": "大橋さんはやっぱり大変でしたか?",
+     "english": "Was Ohashi-san having a hard time after all?"
+    },
+    {
+     "t": 7.533,
+     "source": "私",
+     "english": "I..."
+    },
+    {
+     "t": 10.778,
+     "source": "なんで何も覚えてないのかな?",
+     "english": "Why don't you remember anything?"
+    },
+    {
+     "t": 16.576,
+     "source": "今朝の東京、風はなさそうですけどね、体感はどうでしょうか、",
+     "english": "There doesn't seem to be any wind in Tokyo this morning. How do you feel?"
+    },
+    {
+     "t": 16.621,
+     "source": "近藤さん。",
+     "english": "Kondousan."
+    },
+    {
+     "t": 22.748,
+     "source": "歯が痛いので口を開けることができません",
+     "english": "My teeth hurt, so I can't open my mouth."
+    },
+    {
+     "t": 26.51,
+     "source": "マンションに住んでるんだね",
+     "english": "You live in an apartment."
+    },
+    {
+     "t": 28.741,
+     "source": "えっと",
+     "english": "Let's see..."
+    },
+    {
+     "t": 29.716,
+     "source": "なに?",
+     "english": "What?"
+    },
+    {
+     "t": 30.714,
+     "source": "貴様だっけ",
+     "english": "It was you, wasn't it?"
+    },
+    {
+     "t": 32.91,
+     "source": "それこれが一番大事だと思います",
+     "english": "I think that's the most important thing."
+    },
+    {
+     "t": 36.412,
+     "source": "上院議員は私がデータをゆがめたと告発した",
+     "english": "The senator accused me of distorting the data."
+    },
+    {
+     "t": 37.767,
+     "source": "そんなの?",
+     "english": "That's what it is?"
+    },
+    {
+     "t": 39.555,
+     "source": "それはすごいね",
+     "english": "That's amazing."
+    },
+    {
+     "t": 44.03,
+     "source": "ていうかリシアちゃんはお嬢様なの?",
+     "english": "By the way, is Liscia a young lady?"
+    },
+    {
+     "t": 47.808,
+     "source": "メイドさんを連れてるけどはい",
+     "english": "I have a maid with me, but yes."
+    },
+    {
+     "t": 49.238,
+     "source": "これスマホの懐中電灯モードです",
+     "english": "This is my phone's flashlight mode."
+    },
+    {
+     "t": 54.363,
+     "source": "この動画ハプニングを装ってるけど仕込んでるのがバレバレ",
+     "english": "I'm pretending this video is happening, but it's obvious that I've been trained."
+    },
+    {
+     "t": 60.72,
+     "source": "いやでも",
+     "english": "No, but..."
+    },
+    {
+     "t": 61.803,
+     "source": "一方でこういう知識をしっかり整頓しておいて自分が感染させないかなとかどうやったら感染し",
+     "english": "On the other hand, if you keep all this knowledge in order and don't want to infect yourself, how do you get infected?"
+    },
+    {
+     "t": 66.515,
+     "source": "ないようになるかなってことを頭に入れておくということがこういう検定を通して大切なのかもし",
+     "english": "Is it important to keep in mind that there won't be any through these tests?"
+    },
+    {
+     "t": 66.593,
+     "source": "れないですね",
+     "english": "I don't think so."
+    },
+    {
+     "t": 68.84,
+     "source": "そうさせてもらいます",
+     "english": "I'll do just that."
+    },
+    {
+     "t": 72.78,
+     "source": "ていうか十分リラックスしてますよ",
+     "english": "Actually, I'm plenty relaxed."
+    },
+    {
+     "t": 79.498,
+     "source": "しろたまちゃんもかわいいしまあこんな感じで",
+     "english": "Shirotamachan is cute too. Well, like this"
+    },
+    {
+     "t": 79.626,
+     "source": "許可書がなければここへは入れない",
+     "english": "You can't get in here without a permit."
+    },
+    {
+     "t": 85.8,
+     "source": "やっぱり高橋さんの一緒に写真撮りましょうよって言われた時のそりゃね",
+     "english": "When you asked me to take a picture with takahashisan."
+    },
+    {
+     "t": 87.307,
+     "source": "こんなにかわ",
+     "english": "She's so cute."
+    },
+    {
+     "t": 92.477,
+     "source": "可愛くて一生懸命な子が嘘つくわけないし",
+     "english": "There's no way a cute, hardworking girl would lie"
+    },
+    {
+     "t": 93.354,
+     "source": "この大学アメリカ、イギリス、どっちだっけ?",
+     "english": "This university, america or england. Which was it again?"
+    },
+    {
+     "t": 99.856,
+     "source": "僕聞いたんですけど時差ハワイ行った時に",
+     "english": "I heard about it when we went to hawaii."
+    },
+    {
+     "t": 104.555,
+     "source": "時差ボケで",
+     "english": "It's jet lag."
+    },
+    {
+     "t": 105.807,
+     "source": "海行ったりすると紫外線当たると余計やすいって聞いたことあるんですそれって本当ですか",
+     "english": "I've heard that when you go to the ocean, it's even easier if you get ultraviolet rays. Is that true?"
+    },
+    {
+     "t": 106.796,
+     "source": "そっかー",
+     "english": "I see..."
+    },
+    {
+     "t": 112.897,
+     "source": "残念私のこと",
+     "english": "Too bad about me."
+    },
+    {
+     "t": 113.41,
+     "source": "いろいろ聞こうかと思ったのにかな",
+     "english": "I was going to ask you a lot of questions."
+    },
+    {
+     "t": 115.525,
+     "source": "り広い範囲で爆発音というのは聞かれていらっしゃるようです",
+     "english": "It seems they've heard explosions over a wide area."
+    },
+    {
+     "t": 121.267,
+     "source": "牧牧試験に備えて本当に気合を入れて勉強しなきゃ",
+     "english": "I really need to study hard in preparation for the Makimaki exam."
+    },
+    {
+     "t": 122.474,
+     "source": "あっやっぱりそうなんだね",
+     "english": "Ah, I knew it."
+    },
+    {
+     "t": 124.58,
+     "source": "いい雰囲気だもんね",
+     "english": "It's a nice atmosphere, after all."
+    },
+    {
+     "t": 127.707,
+     "source": "だからどんなことにも耐えられます",
+     "english": "So I can put up with anything."
+    },
+    {
+     "t": 130.752,
+     "source": "そんな演出意図誰もわからないよ",
+     "english": "No one knows why you're doing that."
+    },
+    {
+     "t": 132.559,
+     "source": "本当ですよね",
+     "english": "It's true, right?"
+    },
+    {
+     "t": 139.721,
+     "source": "最近の若者はすごいね",
+     "english": "Young people these days are amazing."
+    },
+    {
+     "t": 143.451,
+     "source": "話で十分ありましたけどね",
+     "english": "That was more than enough, though."
+    },
+    {
+     "t": 149.498,
+     "source": "住民によると、過去にも似たような訪問があったといいます。",
+     "english": "According to the residents, there have been similar visits in the past."
+    },
+    {
+     "t": 150.559,
+     "source": "そうだよね",
+     "english": "You're right."
+    },
+    {
+     "t": 153.205,
+     "source": "受け入れるには時間が必要だもんね",
+     "english": "It takes time to accept it, after all."
+    },
+    {
+     "t": 153.507,
+     "source": "はい",
+     "english": "Yes, sir."
+    },
+    {
+     "t": 157.616,
+     "source": "コーヒーが飲みたいんじゃなくて落ち着いた場所で休みたいんだよ",
+     "english": "I don't want to drink coffee, but rather rest in a calm place."
+    },
+    {
+     "t": 159.301,
+     "source": "しっかりやっていきたいというふうに思います",
+     "english": "I want to do a good job."
+    },
+    {
+     "t": 166.274,
+     "source": "消費も少しずつ回復の兆しが見える中、",
+     "english": "Little by little, the consumption showed signs of recovery."
+    },
+    {
+     "t": 167.202,
+     "source": "今年の日本経済はどうなるのか。",
+     "english": "What will happen to the Japanese economy this year?"
+    },
+    {
+     "t": 169.406,
+     "source": "ごめんなさい",
+     "english": "I'm sorry."
+    },
+    {
+     "t": 174.863,
+     "source": "ここに来れば何か思い出すかと思ったんだけど",
+     "english": "I thought you'd remember something if you came here."
+    },
+    {
+     "t": 176.785,
+     "source": "木曽川はしばしば日本のライン川と呼ばれている",
+     "english": "The Kiso River is often called the Rhine of Japan."
+    },
+    {
+     "t": 182.517,
+     "source": "男性は警察に通報し病院に搬送されました",
+     "english": "The man called the police and was taken to a hospital."
+    },
+    {
+     "t": 185.543,
+     "source": "悔しい気持ちは全然",
+     "english": "I don't feel frustrated at all."
+    },
+    {
+     "t": 187.427,
+     "source": "また明日",
+     "english": "See you tomorrow."
+    },
+    {
+     "t": 189.431,
+     "source": "何か思い出したら言うね",
+     "english": "I'll let you know if I remember anything."
+    },
+    {
+     "t": 192.832,
+     "source": "元気一過ぎて普通の人には理解できなくなった",
+     "english": "She was so energetic that normal people couldn't understand her anymore."
+    },
+    {
+     "t": 198.703,
+     "source": "いじってたらありますありますし例えば女優さんとかと写真撮った時に",
+     "english": "If you're messing with it, there are some. For example, when you take a picture with an actress"
+    },
+    {
+     "t": 199.845,
+     "source": "レタッチしてくださいって言わ",
+     "english": "Tell him to retouch it."
+    },
+    {
+     "t": 202.825,
+     "source": "れて持ち帰って送った",
+     "english": "I took it home and sent it to you."
+    },
+    {
+     "t": 203.987,
+     "source": "ら。",
+     "english": "Ra."
+    },
+    {
+     "t": 209.383,
+     "source": "変身が来てちょっと加工しすぎなので戻して",
+     "english": "The transformation came and I processed it a little too much, so put it back"
+    },
+    {
+     "t": 211.518,
+     "source": "そうか。",
+     "english": "I see."
+    },
+    {
+     "t": 212.557,
+     "source": "ごめんなさい",
+     "english": "I'm sorry."
+    },
+    {
+     "t": 218.606,
+     "source": "名前とかは何と覚えてるんだけどそれ",
+     "english": "I don't know what your name is, but..."
+    },
+    {
+     "t": 219.348,
+     "source": "以外はよく思い出せないみたい",
+     "english": "Other than that, she doesn't seem to remember very well."
+    },
+    {
+     "t": 222.48,
+     "source": "1週間してそのニュースは本当になった",
+     "english": "After a week, the news really got out."
+    },
+    {
+     "t": 229.123,
+     "source": "何をしてたのって言われても",
+     "english": "Even if you ask me what I was doing"
+    },
+    {
+     "t": 230.426,
+     "source": "ごめんね何にも覚えてないんだ",
+     "english": "Sorry, I don't remember anything."
+    },
+    {
+     "t": 235.094,
+     "source": "そもそも本当に7年経ったのかどうかも分かんないし",
+     "english": "I don’t even know if it’s really been seven years in the first place"
+    }
+   ],
+   "statuses": []
+  }
+ }
+}

@@ -70,3 +70,9 @@ overlay_dist.png
 *.log
 .env
 .env.local
+
+# Benchmark audio. Built by `python -m bench.build_samples` from third-party
+# speech datasets (JSUT, Common Voice, ReazonSpeech, an anime speech set) that
+# are not ours to redistribute. The manifest and the reference transcripts
+# beside them are committed; the sound is rebuilt locally.
+bench/samples/*.wav

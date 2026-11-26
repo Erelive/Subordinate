@@ -1,0 +1,1516 @@
+{
+ "label": "baseline-user-config",
+ "note": "commit 4ecbfde: the saved config - Anime-Whisper + Sugoi 14B Ultra via Ollama + speaker labels",
+ "when": "2026-11-24 23:20:51",
+ "config": {
+  "model": "flyfront/anime-whisper-faster",
+  "language": "ja",
+  "no_repeat_ngram_size": 5,
+  "mt_enabled": true,
+  "mt_backend": "llm",
+  "mt_async": true,
+  "llm_model": "hf.co/sugoitoolkit/Sugoi-14B-Ultra-GGUF:Q4_K_M",
+  "diarize_enabled": true,
+  "diarize_max_speakers": 2
+ },
+ "load_sec": 18.16,
+ "summary": {
+  "cer": 0.5091,
+  "chrf": 33.76,
+  "source_lag_p50": 12.6,
+  "first_english_p50": 8.472,
+  "final_after_end_p50": 7.117,
+  "final_after_end_p90": 9.679,
+  "final_lag_p50": 7.982,
+  "sentences": 129,
+  "sentences_finalised": 75,
+  "unplaced_finals": 16,
+  "duplicate_finals": 3
+ },
+ "system": {
+  "gpu_mem_peak_mib": 14779,
+  "gpu_util_mean_pct": 79.3,
+  "process_rss_peak_mib": 1170.7,
+  "process_cpu_mean_pct_of_one_core": 99.2,
+  "ollama_rss_peak_mib": 41.2,
+  "gpu_mem_before_mib": 1572,
+  "gpu_mem_added_mib": 13207
+ },
+ "samples": {
+  "01_slow_clear": {
+   "sentences": 12,
+   "cer": 0.0979,
+   "cer_detail": {
+    "sub": 14,
+    "del": 2,
+    "ins": 7,
+    "ref_len": 235,
+    "hyp_len": 240
+   },
+   "chrf": 65.45,
+   "source_lag": {
+    "n": 61,
+    "mean": 1.755,
+    "p50": 0.745,
+    "p90": 1.063,
+    "max": 20.769
+   },
+   "first_english_after_start": {
+    "n": 12,
+    "mean": 3.612,
+    "p50": 3.603,
+    "p90": 3.841,
+    "max": 4.221
+   },
+   "final_after_sentence_end": {
+    "n": 12,
+    "mean": 1.545,
+    "p50": 1.648,
+    "p90": 1.912,
+    "max": 2.8
+   },
+   "final_lag": {
+    "n": 20,
+    "mean": 1.672,
+    "p50": 1.648,
+    "p90": 2.813,
+    "max": 2.956
+   },
+   "sentences_finalised": 12,
+   "sentences_with_english": 12,
+   "finals": 20,
+   "empty_finals": 0,
+   "unplaced_finals": 0,
+   "duplicate_finals": 0,
+   "previews": 129,
+   "previews_per_sentence": 10.75,
+   "preview_prefix_kept": 0.854
+  },
+  "02_conversational": {
+   "sentences": 13,
+   "cer": 0.6956,
+   "cer_detail": {
+    "sub": 15,
+    "del": 270,
+    "ins": 12,
+    "ref_len": 427,
+    "hyp_len": 169
+   },
+   "chrf": 23.64,
+   "source_lag": {
+    "n": 36,
+    "mean": 12.197,
+    "p50": 14.713,
+    "p90": 21.751,
+    "max": 28.952
+   },
+   "first_english_after_start": {
+    "n": 6,
+    "mean": 11.227,
+    "p50": 7.164,
+    "p90": 21.968,
+    "max": 23.613
+   },
+   "final_after_sentence_end": {
+    "n": 5,
+    "mean": 8.425,
+    "p50": 7.357,
+    "p90": 14.559,
+    "max": 17.814
+   },
+   "final_lag": {
+    "n": 8,
+    "mean": 7.806,
+    "p50": 4.531,
+    "p90": 17.97,
+    "max": 21.088
+   },
+   "sentences_finalised": 5,
+   "sentences_with_english": 6,
+   "finals": 12,
+   "empty_finals": 0,
+   "unplaced_finals": 4,
+   "duplicate_finals": 0,
+   "previews": 104,
+   "previews_per_sentence": 8.0,
+   "preview_prefix_kept": 0.894
+  },
+  "03_fast": {
+   "sentences": 11,
+   "cer": 0.9158,
+   "cer_detail": {
+    "sub": 3,
+    "del": 355,
+    "ins": 12,
+    "ref_len": 404,
+    "hyp_len": 61
+   },
+   "chrf": 8.7,
+   "source_lag": {
+    "n": 11,
+    "mean": 22.505,
+    "p50": 25.743,
+    "p90": 28.037,
+    "max": 28.502
+   },
+   "first_english_after_start": {
+    "n": 0
+   },
+   "final_after_sentence_end": {
+    "n": 0
+   },
+   "final_lag": {
+    "n": 2,
+    "mean": 15.494,
+    "p50": 15.494,
+    "p90": 15.722,
+    "max": 15.779
+   },
+   "sentences_finalised": 0,
+   "sentences_with_english": 0,
+   "finals": 4,
+   "empty_finals": 0,
+   "unplaced_finals": 2,
+   "duplicate_finals": 0,
+   "previews": 28,
+   "previews_per_sentence": 2.55,
+   "preview_prefix_kept": 0.889
+  },
+  "04_multi_speaker": {
+   "sentences": 16,
+   "cer": 0.9852,
+   "cer_detail": {
+    "sub": 0,
+    "del": 266,
+    "ins": 0,
+    "ref_len": 270,
+    "hyp_len": 4
+   },
+   "chrf": 0.0,
+   "source_lag": {
+    "n": 0
+   },
+   "first_english_after_start": {
+    "n": 0
+   },
+   "final_after_sentence_end": {
+    "n": 0
+   },
+   "final_lag": {
+    "n": 0
+   },
+   "sentences_finalised": 0,
+   "sentences_with_english": 0,
+   "finals": 0,
+   "empty_finals": 0,
+   "unplaced_finals": 0,
+   "duplicate_finals": 0,
+   "previews": 0,
+   "previews_per_sentence": 0.0,
+   "preview_prefix_kept": null
+  },
+  "05_casual_slang": {
+   "sentences": 16,
+   "cer": 0.9254,
+   "cer_detail": {
+    "sub": 3,
+    "del": 330,
+    "ins": 2,
+    "ref_len": 362,
+    "hyp_len": 34
+   },
+   "chrf": 5.98,
+   "source_lag": {
+    "n": 2,
+    "mean": 23.291,
+    "p50": 23.291,
+    "p90": 23.451,
+    "max": 23.491
+   },
+   "first_english_after_start": {
+    "n": 0
+   },
+   "final_after_sentence_end": {
+    "n": 0
+   },
+   "final_lag": {
+    "n": 0
+   },
+   "sentences_finalised": 0,
+   "sentences_with_english": 0,
+   "finals": 4,
+   "empty_finals": 0,
+   "unplaced_finals": 4,
+   "duplicate_finals": 0,
+   "previews": 19,
+   "previews_per_sentence": 1.19,
+   "preview_prefix_kept": 0.833
+  },
+  "06_background_music": {
+   "sentences": 13,
+   "cer": 0.377,
+   "cer_detail": {
+    "sub": 35,
+    "del": 81,
+    "ins": 45,
+    "ref_len": 427,
+    "hyp_len": 391
+   },
+   "chrf": 46.77,
+   "source_lag": {
+    "n": 73,
+    "mean": 20.406,
+    "p50": 20.812,
+    "p90": 22.409,
+    "max": 28.236
+   },
+   "first_english_after_start": {
+    "n": 13,
+    "mean": 22.983,
+    "p50": 23.021,
+    "p90": 24.628,
+    "max": 25.534
+   },
+   "final_after_sentence_end": {
+    "n": 12,
+    "mean": 22.054,
+    "p50": 21.471,
+    "p90": 24.182,
+    "max": 25.418
+   },
+   "final_lag": {
+    "n": 23,
+    "mean": 21.694,
+    "p50": 21.618,
+    "p90": 23.965,
+    "max": 25.418
+   },
+   "sentences_finalised": 12,
+   "sentences_with_english": 13,
+   "finals": 24,
+   "empty_finals": 0,
+   "unplaced_finals": 1,
+   "duplicate_finals": 0,
+   "previews": 233,
+   "previews_per_sentence": 17.92,
+   "preview_prefix_kept": 0.897
+  },
+  "07_pauses": {
+   "sentences": 8,
+   "cer": 0.1478,
+   "cer_detail": {
+    "sub": 11,
+    "del": 0,
+    "ins": 23,
+    "ref_len": 230,
+    "hyp_len": 253
+   },
+   "chrf": 62.58,
+   "source_lag": {
+    "n": 61,
+    "mean": 1.773,
+    "p50": 0.875,
+    "p90": 1.358,
+    "max": 26.41
+   },
+   "first_english_after_start": {
+    "n": 8,
+    "mean": 3.446,
+    "p50": 3.679,
+    "p90": 4.066,
+    "max": 4.224
+   },
+   "final_after_sentence_end": {
+    "n": 8,
+    "mean": 1.984,
+    "p50": 1.881,
+    "p90": 2.733,
+    "max": 3.579
+   },
+   "final_lag": {
+    "n": 19,
+    "mean": 1.674,
+    "p50": 1.592,
+    "p90": 2.422,
+    "max": 2.932
+   },
+   "sentences_finalised": 8,
+   "sentences_with_english": 8,
+   "finals": 20,
+   "empty_finals": 0,
+   "unplaced_finals": 1,
+   "duplicate_finals": 0,
+   "previews": 148,
+   "previews_per_sentence": 18.5,
+   "preview_prefix_kept": 0.871
+  },
+  "08_long_continuous": {
+   "sentences": 40,
+   "cer": 0.2518,
+   "cer_detail": {
+    "sub": 88,
+    "del": 65,
+    "ins": 128,
+    "ref_len": 1116,
+    "hyp_len": 1179
+   },
+   "chrf": 56.98,
+   "source_lag": {
+    "n": 270,
+    "mean": 4.111,
+    "p50": 2.021,
+    "p90": 11.24,
+    "max": 29.976
+   },
+   "first_english_after_start": {
+    "n": 40,
+    "mean": 5.055,
+    "p50": 4.893,
+    "p90": 7.39,
+    "max": 9.211
+   },
+   "final_after_sentence_end": {
+    "n": 38,
+    "mean": 3.502,
+    "p50": 3.227,
+    "p90": 5.008,
+    "max": 9.711
+   },
+   "final_lag": {
+    "n": 81,
+    "mean": 3.67,
+    "p50": 3.008,
+    "p90": 5.341,
+    "max": 17.819
+   },
+   "sentences_finalised": 38,
+   "sentences_with_english": 40,
+   "finals": 85,
+   "empty_finals": 0,
+   "unplaced_finals": 4,
+   "duplicate_finals": 3,
+   "previews": 760,
+   "previews_per_sentence": 19.0,
+   "preview_prefix_kept": 0.891
+  }
+ },
+ "engine": {
+  "01_slow_clear": {
+   "passes": 166,
+   "mean_pass_ms": 217.2,
+   "rtf": 0.62,
+   "drops": 0,
+   "engine_commit_lag_mean": 0.294,
+   "engine_commit_lag_max": 0.64,
+   "mt_calls": {
+    "n": 20,
+    "mean_ms": 145.2,
+    "p50_ms": 157.6,
+    "p90_ms": 226.2,
+    "max_ms": 264.7,
+    "first_token_mean_ms": 43.6
+   }
+  },
+  "02_conversational": {
+   "passes": 79,
+   "mean_pass_ms": 818.0,
+   "rtf": 2.3,
+   "drops": 0,
+   "engine_commit_lag_mean": 0.379,
+   "engine_commit_lag_max": 1.04,
+   "mt_calls": {
+    "n": 12,
+    "mean_ms": 361.2,
+    "p50_ms": 421.4,
+    "p90_ms": 553.1,
+    "max_ms": 633.6,
+    "first_token_mean_ms": 83.8
+   }
+  },
+  "03_fast": {
+   "passes": 32,
+   "mean_pass_ms": 2428.4,
+   "rtf": 6.745,
+   "drops": 0,
+   "engine_commit_lag_mean": 0.387,
+   "engine_commit_lag_max": 1.26,
+   "mt_calls": {
+    "n": 4,
+    "mean_ms": 279.4,
+    "p50_ms": 417.8,
+    "p90_ms": 454.0,
+    "max_ms": 454.0,
+    "first_token_mean_ms": 64.5
+   }
+  },
+  "04_multi_speaker": {
+   "passes": 10,
+   "mean_pass_ms": 5461.3,
+   "rtf": 15.969,
+   "drops": 0,
+   "engine_commit_lag_mean": 0.42,
+   "engine_commit_lag_max": 0.42,
+   "mt_calls": {
+    "n": 0
+   }
+  },
+  "05_casual_slang": {
+   "passes": 28,
+   "mean_pass_ms": 3424.9,
+   "rtf": 9.706,
+   "drops": 0,
+   "engine_commit_lag_mean": 0.36,
+   "engine_commit_lag_max": 1.0,
+   "mt_calls": {
+    "n": 4,
+    "mean_ms": 262.5,
+    "p50_ms": 330.4,
+    "p90_ms": 375.9,
+    "max_ms": 375.9,
+    "first_token_mean_ms": 76.6
+   }
+  },
+  "06_background_music": {
+   "passes": 184,
+   "mean_pass_ms": 447.8,
+   "rtf": 1.244,
+   "drops": 0,
+   "engine_commit_lag_mean": 0.361,
+   "engine_commit_lag_max": 1.8,
+   "mt_calls": {
+    "n": 25,
+    "mean_ms": 226.7,
+    "p50_ms": 224.9,
+    "p90_ms": 318.0,
+    "max_ms": 370.5,
+    "first_token_mean_ms": 54.1
+   }
+  },
+  "07_pauses": {
+   "passes": 189,
+   "mean_pass_ms": 249.9,
+   "rtf": 0.72,
+   "drops": 0,
+   "engine_commit_lag_mean": 0.329,
+   "engine_commit_lag_max": 1.7,
+   "mt_calls": {
+    "n": 20,
+    "mean_ms": 181.5,
+    "p50_ms": 168.3,
+    "p90_ms": 327.2,
+    "max_ms": 363.3,
+    "first_token_mean_ms": 52.9
+   }
+  },
+  "08_long_continuous": {
+   "passes": 654,
+   "mean_pass_ms": 320.5,
+   "rtf": 0.896,
+   "drops": 0,
+   "engine_commit_lag_mean": 0.335,
+   "engine_commit_lag_max": 2.02,
+   "mt_calls": {
+    "n": 85,
+    "mean_ms": 216.1,
+    "p50_ms": 210.8,
+    "p90_ms": 330.2,
+    "max_ms": 435.8,
+    "first_token_mean_ms": 61.2
+   }
+  }
+ },
+ "transcripts": {
+  "01_slow_clear": {
+   "finals": [
+    {
+     "t": 4.697,
+     "source": "瑞穂マレーシャから買わなくてはならないのです…",
+     "english": "I have to buy it from Mizuho Malaysia..."
+    },
+    {
+     "t": 8.536,
+     "source": "木曜日、",
+     "english": "Thursday,"
+    },
+    {
+     "t": 10.264,
+     "source": "停船会談は何の進展もないまま終了",
+     "english": "The talks ended with no progress."
+    },
+    {
+     "t": 11.311,
+     "source": "しましたた…",
+     "english": "I did..."
+    },
+    {
+     "t": 14.932,
+     "source": "上院議員は私がデータを歪めたと",
+     "english": "The senator said I distorted the data."
+    },
+    {
+     "t": 16.347,
+     "source": "発した…",
+     "english": "He said..."
+    },
+    {
+     "t": 19.97,
+     "source": "一週間して、",
+     "english": "A week later,"
+    },
+    {
+     "t": 20.869,
+     "source": "そのニューススとは本当になった…",
+     "english": "That news became true..."
+    },
+    {
+     "t": 24.096,
+     "source": "血圧は健康のパロメーターとして",
+     "english": "Blood pressure is a measure of health..."
+    },
+    {
+     "t": 25.726,
+     "source": "である…",
+     "english": "..."
+    },
+    {
+     "t": 29.19,
+     "source": "週に4回フランスの授業業があります…",
+     "english": "I have French class four times a week..."
+    },
+    {
+     "t": 33.37,
+     "source": "許可証がななければここへは入れない…",
+     "english": "You can't come in here without a permit..."
+    },
+    {
+     "t": 37.692,
+     "source": "大声で泣きながら、",
+     "english": "Crying loudly,"
+    },
+    {
+     "t": 40.04,
+     "source": "女の子は母親を探していた……",
+     "english": "The girl was looking for her mother..."
+    },
+    {
+     "t": 43.644,
+     "source": "無罪な人々はもちろん放免された…",
+     "english": "Of course, innocent people were released..."
+    },
+    {
+     "t": 47.788,
+     "source": "末期試験に備えて、",
+     "english": "In preparation for the final exam,"
+    },
+    {
+     "t": 49.749,
+     "source": "本当に気合いを入れて勉強しなきゃ…",
+     "english": "I really need to study hard..."
+    },
+    {
+     "t": 53.283,
+     "source": "基礎側はしばししば日本のライン川と呼",
+     "english": "The lower part is sometimes called Japan's Rhine."
+    },
+    {
+     "t": 54.775,
+     "source": "れている…",
+     "english": "..."
+    },
+    {
+     "t": 58.657,
+     "source": "溺れがかっていた乗客は全て救助されたい…",
+     "english": "All the passengers who were in danger of drowning were rescued..."
+    }
+   ],
+   "statuses": [
+    {
+     "t": 0.0,
+     "message": "loading model..."
+    },
+    {
+     "t": 0.0,
+     "message": "loading translation model..."
+    },
+    {
+     "t": 0.0,
+     "message": "loading speaker model..."
+    },
+    {
+     "t": 0.0,
+     "message": "opening audio device..."
+    }
+   ]
+  },
+  "02_conversational": {
+   "finals": [
+    {
+     "t": 6.528,
+     "source": "ちょっと見ていきましょうはい…オハ",
+     "english": "Let's take a look... Oh!"
+    },
+    {
+     "t": 6.978,
+     "source": "サはやっぱり?",
+     "english": "S, as I thought?"
+    },
+    {
+     "t": 8.415,
+     "source": "大変でしたか?",
+     "english": "Were you busy?"
+    },
+    {
+     "t": 12.094,
+     "source": "はい、さ、今朝の東京、",
+     "english": "Yes, this morning in Tokyo,"
+    },
+    {
+     "t": 14.652,
+     "source": "風邪はなさそうですけどね体感はどうでしょう",
+     "english": "You don't seem to have a cold, but how do you feel?"
+    },
+    {
+     "t": 20.353,
+     "source": "か、",
+     "english": "Well,"
+    },
+    {
+     "t": 21.657,
+     "source": "近藤さん…ルルヴェチは大事だと思います…",
+     "english": "Kondo-san... I think Rurvelte is important..."
+    },
+    {
+     "t": 33.358,
+     "source": "はいこれ、あの、",
+     "english": "Yes, this, um,"
+    },
+    {
+     "t": 36.274,
+     "source": "スマホの懐中電灯モード…いやでも",
+     "english": "It's the flashlight mode on my phone... no, wait,"
+    },
+    {
+     "t": 43.268,
+     "source": "方でこういう知識をしっかり頓しておいて、",
+     "english": "Make sure to properly store this kind of knowledge,"
+    },
+    {
+     "t": 54.007,
+     "source": "分が感染染させないかなとか、",
+     "english": "so you don't get infected, or something like that,"
+    },
+    {
+     "t": 66.321,
+     "source": "どうやったら感染染しないようになるかなってこと、",
+     "english": "how to not get infected, you know?"
+    }
+   ],
+   "statuses": [
+    {
+     "t": 0.0,
+     "message": "loading translation model..."
+    },
+    {
+     "t": 0.0,
+     "message": "loading speaker model..."
+    },
+    {
+     "t": 0.0,
+     "message": "opening audio device..."
+    }
+   ]
+  },
+  "03_fast": {
+   "finals": [
+    {
+     "t": 55.229,
+     "source": "話で、",
+     "english": "By the way,"
+    },
+    {
+     "t": 56.773,
+     "source": "分ありましたけどね…住民によると…",
+     "english": "I understand, but according to the residents..."
+    },
+    {
+     "t": 68.055,
+     "source": "…過去にも似たような訪問があったと言います…",
+     "english": "...there have been similar visits in the past, they say..."
+    },
+    {
+     "t": 79.429,
+     "source": "って、",
+     "english": "Wait,"
+    }
+   ],
+   "statuses": [
+    {
+     "t": 0.0,
+     "message": "loading translation model..."
+    },
+    {
+     "t": 0.0,
+     "message": "loading speaker model..."
+    },
+    {
+     "t": 0.0,
+     "message": "opening audio device..."
+    }
+   ]
+  },
+  "04_multi_speaker": {
+   "finals": [],
+   "statuses": [
+    {
+     "t": 0.0,
+     "message": "loading translation model..."
+    },
+    {
+     "t": 0.0,
+     "message": "loading speaker model..."
+    },
+    {
+     "t": 0.0,
+     "message": "opening audio device..."
+    }
+   ]
+  },
+  "05_casual_slang": {
+   "finals": [
+    {
+     "t": 73.705,
+     "source": "私……",
+     "english": "I..."
+    },
+    {
+     "t": 80.443,
+     "source": "なんでなんにもも覚えてないのかな?",
+     "english": "Why don't I remember anything?"
+    },
+    {
+     "t": 91.056,
+     "source": "ひょっとして、これで記憶喪失?",
+     "english": "Could this be causing amnesia?"
+    },
+    {
+     "t": 95.65,
+     "source": "え?",
+     "english": "Huh?"
+    }
+   ],
+   "statuses": [
+    {
+     "t": 0.0,
+     "message": "loading translation model..."
+    },
+    {
+     "t": 0.0,
+     "message": "loading speaker model..."
+    },
+    {
+     "t": 0.0,
+     "message": "opening audio device..."
+    }
+   ]
+  },
+  "06_background_music": {
+   "finals": [
+    {
+     "t": 23.202,
+     "source": "ちょっと見ていきましょうはい………",
+     "english": "Let's take a look..."
+    },
+    {
+     "t": 24.19,
+     "source": "大橋さんはやっぱり、大変でしたか?",
+     "english": "Were you really busy, Ohashi-san?"
+    },
+    {
+     "t": 27.531,
+     "source": "はいさ、さ、今朝の東京、",
+     "english": "Yes, this morning in Tokyo,"
+    },
+    {
+     "t": 29.528,
+     "source": "風邪はなさそうですけどね体感はどうでしょうか、",
+     "english": "You don't seem to have a cold, but how does it feel?"
+    },
+    {
+     "t": 32.588,
+     "source": "近藤さん…常フルフェ",
+     "english": "Kondo-san... always full speed"
+    },
+    {
+     "t": 35.09,
+     "source": "ェチは大事だと思います……はい、これ、",
+     "english": "I think hygiene is important... yes, this,"
+    },
+    {
+     "t": 39.089,
+     "source": "あの…スマホの懐中電灯モードで……",
+     "english": "Um... use the flashlight mode on your phone..."
+    },
+    {
+     "t": 43.663,
+     "source": "一方でこういう知識をしっかり整頓しておいて自分が",
+     "english": "On the other hand, I should properly organize this kind of knowledge so that I"
+    },
+    {
+     "t": 46.81,
+     "source": "完成させないかなとか、",
+     "english": "can finish it, or something like that,"
+    },
+    {
+     "t": 48.104,
+     "source": "どうやったら完成しなようになるかなってことを頭に入れておく",
+     "english": "and keep in mind how I might be able to finish it."
+    },
+    {
+     "t": 51.18,
+     "source": "ということが、",
+     "english": "That's what,"
+    },
+    {
+     "t": 52.31,
+     "source": "こういう献帝帝を通して大切なのかかもしれないですねそうなんけど、",
+     "english": "maybe something important that goes through Emperor Xian, or something like that,"
+    },
+    {
+     "t": 58.279,
+     "source": "ええ、ええ、こんな感じで……",
+     "english": "Yeah, yeah, something like that..."
+    },
+    {
+     "t": 59.315,
+     "source": "やっぱ、",
+     "english": "I guess,"
+    },
+    {
+     "t": 59.922,
+     "source": "あの隆さんの一緒に写真撮りましょうよって言われた時のあの…",
+     "english": "You know, when Takuo asked me to take a picture with him..."
+    },
+    {
+     "t": 62.056,
+     "source": "…ボク、聞いた",
+     "english": "...I asked."
+    },
+    {
+     "t": 64.41,
+     "source": "んですけど…あの…時差マハワイ行った時に…",
+     "english": "But...when I went to Hawaii..."
+    },
+    {
+     "t": 67.892,
+     "source": "時差ボケで…海行ったりするとと紫外線あたる",
+     "english": "I was jet-lagged...and when I went to the beach, I got sunburned."
+    },
+    {
+     "t": 70.868,
+     "source": "と、計やすいって聞いたことあるんですか?",
+     "english": "Have you ever heard that it's easy to measure?"
+    },
+    {
+     "t": 73.688,
+     "source": "……広い灰でその爆発音",
+     "english": "...The wide ash and the sound of the explosion"
+    },
+    {
+     "t": 77.891,
+     "source": "というのに聞かれていらっしゃいようです……",
+     "english": "It seems you were asked about that..."
+    },
+    {
+     "t": 80.427,
+     "source": "だからどんなことにも耐えられマ○○○…本当です",
+     "english": "That's why I can endure anything...really."
+    },
+    {
+     "t": 82.454,
+     "source": "よねいじって",
+     "english": "Right, Iji?"
+    },
+    {
+     "t": 85.111,
+     "source": "たら…ありますし、あのあの、例えば、",
+     "english": "Well...I do, for example,"
+    }
+   ],
+   "statuses": [
+    {
+     "t": 0.0,
+     "message": "loading translation model..."
+    },
+    {
+     "t": 0.0,
+     "message": "loading speaker model..."
+    },
+    {
+     "t": 0.0,
+     "message": "opening audio device..."
+    }
+   ]
+  },
+  "07_pauses": {
+   "finals": [
+    {
+     "t": 7.986,
+     "source": "木曜日、停戦会談は………",
+     "english": "On Thursday, the ceasefire talks..."
+    },
+    {
+     "t": 10.964,
+     "source": "何の進展もないまま終了しましたた…",
+     "english": "ended with no progress..."
+    },
+    {
+     "t": 14.776,
+     "source": "ごめんなさい…名前とかはなんと",
+     "english": "Sorry... What should I call you?"
+    },
+    {
+     "t": 17.718,
+     "source": "なく覚えてるんだけど…それ以外は",
+     "english": "I can't remember anything else..."
+    },
+    {
+     "t": 20.591,
+     "source": "く思い出せないみたいはい…",
+     "english": "I can't seem to remember..."
+    },
+    {
+     "t": 28.224,
+     "source": "大声で泣きなながら",
+     "english": "Crying really loud..."
+    },
+    {
+     "t": 33.859,
+     "source": "女の子は母親を探していた……はい、さ、",
+     "english": "The girl was looking for her mother..."
+    },
+    {
+     "t": 36.592,
+     "source": "さ、今朝の東京、",
+     "english": "This morning in Tokyo,"
+    },
+    {
+     "t": 38.666,
+     "source": "風邪はなさそうですけどね…体感はどうどうでしょうか、",
+     "english": "You don't seem to have a cold... How do you feel?"
+    },
+    {
+     "t": 39.886,
+     "source": "近藤さん…",
+     "english": "Kondo-san..."
+    },
+    {
+     "t": 47.674,
+     "source": "んぐぐマ",
+     "english": "Nnggma"
+    },
+    {
+     "t": 48.337,
+     "source": "キシケに備え……",
+     "english": "Prepare for Kishi..."
+    },
+    {
+     "t": 51.983,
+     "source": "で、本当に気合いを入入れて勉強しなきゃ…",
+     "english": "So, I really need to study hard..."
+    },
+    {
+     "t": 55.054,
+     "source": "こんな立派なマンマンションに住んでるんだね…",
+     "english": "You live in such a nice apartment building..."
+    },
+    {
+     "t": 57.288,
+     "source": "えっと…",
+     "english": "Um..."
+    },
+    {
+     "t": 58.913,
+     "source": "なにさんだっけ?",
+     "english": "What was your name again?"
+    },
+    {
+     "t": 68.508,
+     "source": "…何をしてたのって言わわれても……",
+     "english": "...Even if they ask what I was doing..."
+    },
+    {
+     "t": 73.172,
+     "source": "ごめんねなんにも覚えてないんだあ…",
+     "english": "I'm sorry, I don't remember anything..."
+    },
+    {
+     "t": 77.978,
+     "source": "そもそも…本当に七年経ったのかどうかもわかんないし",
+     "english": "In the first place... I'm not even sure if seven years really have passed."
+    },
+    {
+     "t": 81.359,
+     "source": "だからどんなことにも耐ええられます…",
+     "english": "So I can endure anything..."
+    }
+   ],
+   "statuses": [
+    {
+     "t": 0.0,
+     "message": "loading translation model..."
+    },
+    {
+     "t": 0.0,
+     "message": "loading speaker model..."
+    },
+    {
+     "t": 0.0,
+     "message": "opening audio device..."
+    }
+   ]
+  },
+  "08_long_continuous": {
+   "finals": [
+    {
+     "t": 5.968,
+     "source": "ちょっと見ていきましょうはい……ちん",
+     "english": "Let's take a look...yeah...chin"
+    },
+    {
+     "t": 7.041,
+     "source": "はやっぱり、大変でしたか?",
+     "english": "So it was tough, huh?"
+    },
+    {
+     "t": 9.195,
+     "source": "私………",
+     "english": "I..."
+    },
+    {
+     "t": 10.967,
+     "source": "なんでなんにも覚えてないのかな?",
+     "english": "Why don't I remember anything?"
+    },
+    {
+     "t": 13.785,
+     "source": "…はい、さ、さ、",
+     "english": "...Y-yes, s-s-"
+    },
+    {
+     "t": 14.923,
+     "source": "さ、さ、",
+     "english": "S-s-"
+    },
+    {
+     "t": 15.247,
+     "source": "さ、さ、",
+     "english": "S-s-"
+    },
+    {
+     "t": 15.56,
+     "source": "さ、さ、",
+     "english": "S-s-"
+    },
+    {
+     "t": 15.908,
+     "source": "さ、さ、",
+     "english": "S-s-"
+    },
+    {
+     "t": 16.765,
+     "source": "さ、さ、今朝の東京風邪はなさそうですけどね…体感はどうでしょうか、",
+     "english": "S-s, it doesn't look like Tokyo has a cold this morning... How does it feel to you?"
+    },
+    {
+     "t": 20.623,
+     "source": "近藤さん……",
+     "english": "Kondo-san..."
+    },
+    {
+     "t": 22.848,
+     "source": "肌痛いので…口を開けることが",
+     "english": "My skin hurts so... I can't open my mouth"
+    },
+    {
+     "t": 31.491,
+     "source": "できません……",
+     "english": "can't do it..."
+    },
+    {
+     "t": 32.37,
+     "source": "なにさんだっけ?",
+     "english": "What was your name again?"
+    },
+    {
+     "t": 35.005,
+     "source": "ですね…ルェッチは大事だと思います。",
+     "english": "Yeah... I think Rutch is important."
+    },
+    {
+     "t": 37.78,
+     "source": "上院議員は私がデータを歪めたと告発した…",
+     "english": "The senator accused me of tampering with the data..."
+    },
+    {
+     "t": 39.202,
+     "source": "そんなの?",
+     "english": "Is that so?"
+    },
+    {
+     "t": 44.097,
+     "source": "それはすごいね…っていうか、",
+     "english": "That's amazing... Wait,"
+    },
+    {
+     "t": 45.521,
+     "source": "リシアちゃんはお嬢様なの?",
+     "english": "Is Licia a lady?"
+    },
+    {
+     "t": 49.645,
+     "source": "メイドさんを連れてるけど…はい、これ、",
+     "english": "You've got a maid with you... Here, this is..."
+    },
+    {
+     "t": 51.983,
+     "source": "あの…スマホの懐中電灯モードで…",
+     "english": "Um... Use the flashlight on your phone..."
+    },
+    {
+     "t": 56.742,
+     "source": "動画…プニングを装ってるけど、",
+     "english": "It's a video... pretending to be a prank..."
+    },
+    {
+     "t": 58.505,
+     "source": "仕込んでるのがバレバレ……でも、",
+     "english": "It's obvious it's set up... But,"
+    },
+    {
+     "t": 61.535,
+     "source": "一方ででこういう知識をしっかり頓しておいて自分が感染させ",
+     "english": "On the other hand, if you have this knowledge firmly in mind, you can infect others yourself..."
+    },
+    {
+     "t": 64.833,
+     "source": "かなとかどうやったら感染しなないようになるるかなってことを頭に入",
+     "english": "like how to avoid getting infected..."
+    },
+    {
+     "t": 68.514,
+     "source": "れておくということでは、",
+     "english": "and keeping that in mind,"
+    },
+    {
+     "t": 70.347,
+     "source": "こういう献帝を通して大切なのかもしもしれないですねなんですね",
+     "english": "maybe this kind of knowledge is important too."
+    },
+    {
+     "t": 73.399,
+     "source": "そうさせてもらいます…っていうか、",
+     "english": "I'll do that... or rather,"
+    },
+    {
+     "t": 76.923,
+     "source": "十分リラックスしてますよ白玉ちゃん",
+     "english": "I'm plenty relaxed, Shirogane-chan."
+    },
+    {
+     "t": 79.07,
+     "source": "も可愛いし…けどええ、",
+     "english": "You're also cute... but yeah,"
+    },
+    {
+     "t": 83.808,
+     "source": "まあこんな感じで…………許可証がなければここへは入れない…やっぱ、",
+     "english": "Well, it's like this... you can't get in here without a permit... I guess,"
+    },
+    {
+     "t": 86.696,
+     "source": "あの隆史さんの一緒緒に写真撮りりましょうよって言われたとききのあの…",
+     "english": "When they asked me to take a photo with Takashi-san just now..."
+    },
+    {
+     "t": 89.78,
+     "source": "そりゃね…こんなに可愛くて一生懸命な子が、",
+     "english": "Of course... a kid this cute and hardworking,"
+    },
+    {
+     "t": 92.876,
+     "source": "つくわけないしカナ",
+     "english": "can't help it, right?"
+    },
+    {
+     "t": 96.235,
+     "source": "ダ大学アメリカイギイギリス、どっちだっけ。",
+     "english": "Was it America or England for university?"
+    },
+    {
+     "t": 98.591,
+     "source": "…どうボク聞いたんですけど…あの…",
+     "english": "...I can't remember how you said it... um..."
+    },
+    {
+     "t": 103.119,
+     "source": "時差マハワ行った時に、",
+     "english": "about the time difference when I go there,"
+    },
+    {
+     "t": 104.369,
+     "source": "時差ボケで…行ったりすると紫外線当たる",
+     "english": "I get jet lagged... and when I go there, I get hit by UV rays."
+    },
+    {
+     "t": 106.455,
+     "source": "と余計焼けやすいって聞いたことあんです。",
+     "english": "and I heard I get sunburned even easier."
+    },
+    {
+     "t": 107.356,
+     "source": "それって本当ですか?",
+     "english": "Is that true?"
+    },
+    {
+     "t": 110.785,
+     "source": "…そっかー、",
+     "english": "...I see."
+    },
+    {
+     "t": 112.246,
+     "source": "残念…私のこと色々聞こうかと思",
+     "english": "Too bad... I was thinking of finding out more about me"
+    },
+    {
+     "t": 114.332,
+     "source": "ったのに……",
+     "english": "..."
+    },
+    {
+     "t": 117.372,
+     "source": "広い範囲囲でその、",
+     "english": "Over a wide range, you know,"
+    },
+    {
+     "t": 118.424,
+     "source": "発音というのはのに聞かれていらっしゃるようです…",
+     "english": "it seems you're being asked about pronunciation..."
+    },
+    {
+     "t": 121.741,
+     "source": "マ試験に備備えて、",
+     "english": "To prepare for the exam,..."
+    },
+    {
+     "t": 123.03,
+     "source": "本当に気合いを入れて勉強しなきゃゃあ…",
+     "english": "I really need to study hard..."
+    },
+    {
+     "t": 126.577,
+     "source": "りそうなんだねいい囲気だもんね",
+     "english": "It's really motivating, isn't it?"
+    },
+    {
+     "t": 128.758,
+     "source": "…だから、どんなことに",
+     "english": "...So, what kind of things..."
+    },
+    {
+     "t": 131.739,
+     "source": "も耐ええられます……そんな演出意図…誰も",
+     "english": "...can be endured......such a performance intention...nobody"
+    },
+    {
+     "t": 136.022,
+     "source": "わからないよ…本当ですよね…ええ、",
+     "english": "doesn't get it...right...yes,"
+    },
+    {
+     "t": 138.799,
+     "source": "そうなんだ最近",
+     "english": "That's right, lately"
+    },
+    {
+     "t": 141.375,
+     "source": "若者はすごいね…。",
+     "english": "Young people are amazing..."
+    },
+    {
+     "t": 144.108,
+     "source": "話でずいぶんありましたけどね…",
+     "english": "We've talked about it a lot..."
+    },
+    {
+     "t": 145.939,
+     "source": "住民によるると……",
+     "english": "According to the residents..."
+    },
+    {
+     "t": 149.397,
+     "source": "過去にも、",
+     "english": "In the past,"
+    },
+    {
+     "t": 150.682,
+     "source": "たような訪問があったと言います…そうだよね",
+     "english": "there were similar visits, they say... yeah, that's right."
+    },
+    {
+     "t": 154.833,
+     "source": "受け入れるには、",
+     "english": "To accept,"
+    },
+    {
+     "t": 155.384,
+     "source": "時間が必要だもんねコーヒーが飲みたい",
+     "english": "it takes time, doesn't it? I want some coffee."
+    },
+    {
+     "t": 159.457,
+     "source": "んじゃじゃなくて、",
+     "english": "Not that, then,"
+    },
+    {
+     "t": 160.455,
+     "source": "落ち着いた場所で休みたいんだよしっかりやってきたいという風になります…",
+     "english": "I want to rest somewhere quiet... I want to be ready to go."
+    },
+    {
+     "t": 165.042,
+     "source": "消費も少しずつ回復の兆しが見える中",
+     "english": "As my energy slowly starts to recover,"
+    },
+    {
+     "t": 168.326,
+     "source": "今年の日本経済はどうなるのか…",
+     "english": "What will become of Japan's economy this year..."
+    },
+    {
+     "t": 171.947,
+     "source": "…ごめんなさいここに来れば何か",
+     "english": "...I'm sorry, I thought something would be here."
+    },
+    {
+     "t": 175.142,
+     "source": "い出すかと思ったんだけど……木曽川は、",
+     "english": "I thought it would be starting here... but the Kiso River,"
+    },
+    {
+     "t": 178.891,
+     "source": "しばししば日本のライン川と呼呼ばれている…",
+     "english": "is sometimes called Japan's Rhine..."
+    },
+    {
+     "t": 181.47,
+     "source": "男性は、",
+     "english": "Men,"
+    },
+    {
+     "t": 182.341,
+     "source": "警に通報し病院に搬送され",
+     "english": "reported it to the police and was taken to the hospital"
+    },
+    {
+     "t": 183.44,
+     "source": "ました…",
+     "english": "..."
+    },
+    {
+     "t": 187.297,
+     "source": "悔しい気持ちは出る…うん、",
+     "english": "I feel regret... yeah,"
+    },
+    {
+     "t": 190.194,
+     "source": "また明日…なにか思い出したら言ううね",
+     "english": "Tell me if you remember anything tomorrow..."
+    },
+    {
+     "t": 193.819,
+     "source": "研究しすぎぎて普通の人ヒツには理解できなくなったいじって",
+     "english": "I've become so engrossed in my research that ordinary people can't understand me anymore."
+    },
+    {
+     "t": 197.388,
+     "source": "たら、ありますし、あの、例えば…優さんとかと、",
+     "english": "Well, there is, for example, with Yuu-san and,"
+    },
+    {
+     "t": 200.134,
+     "source": "差し出てきに…レタッチしてくださいって言わわれて……",
+     "english": "They asked me to retouch it..."
+    },
+    {
+     "t": 203.926,
+     "source": "わかりまして持ち帰って…送ったら…あの…",
+     "english": "I understand, I'll take it home and send it... um..."
+    },
+    {
+     "t": 208.039,
+     "source": "信が来て、",
+     "english": "Shin came,"
+    },
+    {
+     "t": 210.46,
+     "source": "ちょっと加工しすぎぎなので戻しちゃちゃうあはは",
+     "english": "I overdid it a bit, so I'll undo it, ahaha"
+    },
+    {
+     "t": 212.89,
+     "source": "そうかワケわかんなくななっちゃうごめんなさい…",
+     "english": "I see, I guess it got confusing, sorry..."
+    },
+    {
+     "t": 216.393,
+     "source": "名前とかはなんとなく覚えてるんだけど…",
+     "english": "I kind of remember the names, but..."
+    },
+    {
+     "t": 221.049,
+     "source": "それ以外はよく思い出せないみたい一週間",
+     "english": "I can't seem to remember anything else, it's been a week..."
+    },
+    {
+     "t": 223.749,
+     "source": "してそのニュースとは本当本当になった…ん…",
+     "english": "And that news really did happen...uh..."
+    },
+    {
+     "t": 227.84,
+     "source": "をしてたのって言われても……",
+     "english": "Even if I'm told I was doing that..."
+    },
+    {
+     "t": 231.279,
+     "source": "…ごめんね、",
+     "english": "...I'm sorry."
+    },
+    {
+     "t": 232.508,
+     "source": "なんにも覚えてないんだあ…そもそも、",
+     "english": "I don't remember anything at all...in the first place,"
+    },
+    {
+     "t": 235.027,
+     "source": "本当に七七年経ったのかどうかもわかんないし…",
+     "english": "I don't even know if it's really been 77 years..."
+    }
+   ],
+   "statuses": [
+    {
+     "t": 0.0,
+     "message": "loading translation model..."
+    },
+    {
+     "t": 0.0,
+     "message": "loading speaker model..."
+    },
+    {
+     "t": 0.0,
+     "message": "opening audio device..."
+    }
+   ]
+  }
+ }
+}

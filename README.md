@@ -319,6 +319,8 @@ click-through and has no taskbar button, so the tray icon controls it.
 .venv\Scripts\python.exe -m tools.doctor           # devices + GPU + speed
 .venv\Scripts\python.exe -m tools.capture_check 6  # is loopback capturing?
 .venv\Scripts\python.exe -m tools.console 30       # captions in the terminal
+.venv\Scripts\python.exe -m tools.console 30 fast  # ...with a profile
+.venv\Scripts\python.exe -m tools.ui_preview out   # render every page to PNG
 .venv\Scripts\python.exe -m tools.make_icon        # regenerate the app icon
 .venv\Scripts\python.exe main.py --model large-v3 --language ja --task translate
 ```
@@ -756,6 +758,14 @@ The settings worth touching:
 - `compute_type` - `int8_float16` roughly halves VRAM at a small accuracy cost
 - `process_interval_sec` - 0.35 s; the strongest latency lever, and it pays
   twice, since LocalAgreement needs two passes to commit a word
+- `commit_holdback_sec` - how far the audio must run past a word before it can
+  settle. The main accuracy/latency trade for the live Japanese line; it does
+  not delay finished lines, which are settled whole when the speaker stops
+- `endpoint_silence_sec` - the pause that ends an utterance that does *not*
+  read as a finished sentence
+- `eager_endpoint_sec` - the shorter pause that ends one that does. 0 turns
+  early finishing off
+- `long_pause_sec` - how long a sentence that stops on は or けど is waited on
 - `max_buffer_sec` - longer context is more accurate but pushes RTF towards 1.0
 - `font_size`, `max_width_frac`, `bottom_margin_frac` - overlay placement
 - `overlay_enabled` - draw the click-through overlay as well as the window
@@ -764,8 +774,9 @@ The settings worth touching:
 ## How it works
 
 ```
-WASAPI loopback -> downmix + resample to 16 kHz -> energy gate
-   -> rolling buffer -> Whisper (every ~0.35 s) -> LocalAgreement-2 -> overlay
+WASAPI loopback -> downmix + resample to 16 kHz -> voice detector (Silero)
+   -> rolling buffer -> Whisper (every ~0.35 s) -> agreement between passes
+   -> sentence boundaries -> translator -> window and overlay
 ```
 
 **Capture.** WASAPI loopback records the default render device, so any app's
@@ -783,11 +794,73 @@ flushed.
 **Streaming.** Whisper is not a streaming model: it transcribes a whole buffer at
 once and its answer for a given word can change as more audio arrives. Printing
 raw output every half second produces text that visibly rewrites itself. This
-uses LocalAgreement-2 (Machacek et al., 2023): run inference on the growing
-buffer, and commit a word only once two consecutive passes agree on it. The
-committed prefix is final and drawn in white; the disagreeing tail is drawn
-dimmed as a live guess. Once the buffer passes `max_buffer_sec`, audio behind the
-last committed word is discarded.
+starts from LocalAgreement-2 (Machacek et al., 2023): run inference on the
+growing buffer, and treat a word as settled once two consecutive passes agree on
+it. Settled text is drawn solid; the disagreeing tail is drawn dimmed as a live
+guess.
+
+It departs from the paper in one way that turned out to matter more than any
+model choice. There, a settled word is settled for good. Here it stays open to
+correction until its line has been handed to the translator:
+
+- **A settled word can be revised.** If two consecutive passes agree with each
+  other against what was settled, they win. The first passes over the opening
+  half second of an utterance are the least reliable the recogniser makes, and
+  under the paper's rule a wrong guess there was permanent - every later,
+  correct reading of the same audio was thrown away for disagreeing with it.
+- **A word is not settled at the edge of the buffer.** However many passes
+  agree, the audio has to have run on `commit_holdback_sec` past a word first,
+  because the word the buffer ends in the middle of is guessed the same wrong
+  way twice. A word followed by silence is exempt: it is not the middle of
+  anything.
+- **A finished utterance is read once, whole.** When the speaker stops, the last
+  pass has heard the entire utterance with silence after it. That reading
+  replaces the piecemeal one before anything is translated.
+
+**Where sentences end.** Three kinds of evidence, in `subordinant/segment.py`:
+the recogniser's own punctuation, pauses, and whether the text reads as finished
+(it ends in a predicate or a sentence-final particle) or as waiting for more (it
+ends in は, を, けど...). A pause is matched to the text by what the recogniser
+had read when it looked at the audio *during* that pause, not by word timestamps,
+which on Japanese are routinely a token out.
+
+What a pause means depends on the text before it:
+
+- *It reads as finished* - the line is taken a fraction of a second into the
+  pause (`eager_endpoint_sec`) instead of after the full `endpoint_silence_sec`,
+  and its audio is cut out of the buffer at the pause.
+- *It reads as unfinished* - the audio is kept and the recogniser goes on
+  listening to the same buffer for up to `long_pause_sec`, so a sentence spoken
+  with a breath in the middle is heard as one sentence rather than two halves.
+
+**Why the audio is cut at a finished sentence.** The Japanese recognisers here
+(Kotoba-Whisper, Anime-Whisper) were trained on single sentences. Shown a buffer
+holding a finished sentence, a pause, and the start of another, they transcribe
+the first and stop - the second is not misheard, it is not read at all, for
+seconds at a time. A buffer that begins at the pause has nothing in it to stop
+at. A watchdog covers the cases the text test misses: if a second of speech has
+gone by since a pause and the reading still ends at that pause, the buffer is cut
+there anyway. Once the buffer passes `max_buffer_sec` with no such cut, the
+oldest audio is discarded, keeping a couple of seconds of settled speech at its
+head as context.
+
+## Measuring it
+
+`bench/` replays eight recorded samples (thirteen minutes: slow, fast,
+conversational, overlapping, slang, over music, with long pauses, and two and a
+half minutes without a gap) through the real pipeline and scores what comes out
+against what was said. Results and how to read them are in
+[BENCHMARKS.md](BENCHMARKS.md).
+
+```
+.venv\Scripts\python.exe -m bench.run --profile balanced               # real time, 13 min
+.venv\Scripts\python.exe -m bench.run --profile fast --fast-replay     # accuracy only, ~4 min
+.venv\Scripts\python.exe -m bench.report base-balanced balanced --samples
+```
+
+`--fast-replay` feeds the audio as fast as it is consumed. Recognition and
+segmentation come out as they would live, which is what iterating on accuracy
+needs; latency figures from such a run are meaningless and are not shown.
 
 ## Known limits
 
