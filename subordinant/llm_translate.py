@@ -46,6 +46,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from . import glossary
 from .config import Config
 from .translate import TranslationUnavailable
 
@@ -109,6 +110,11 @@ _GLOSSARY = """
 Names and terms used in this audio. Use these exact spellings, and these
 readings for any kanji given one:
 {terms}"""
+
+# Follows a line that contains stream or net slang - see glossary.py. In
+# brackets and after the line, because this is a note to the translator and
+# the line is what is to be translated.
+_NOTE = "\n\n[Translator's note, not part of the line. {notes}]"
 
 # The pipeline speaks ISO codes; the prompt reads better with a name.
 _LANG_NAME = {"ja": "Japanese", "zh": "Chinese", "ko": "Korean", "en": "English"}
@@ -263,6 +269,7 @@ class LLMTranslator:
         self._history: deque[tuple[str, str]] = deque(
             maxlen=max(1, cfg.llm_context_utterances)
         )
+        self._glossary = glossary.default() if cfg.slang_glossary else None
         self._session = requests.Session()
 
         t0 = time.perf_counter()
@@ -322,6 +329,18 @@ class LLMTranslator:
     def reset(self) -> None:
         """Forget the conversation so far."""
         self._history.clear()
+
+    def amend(self, source: str, new_source: str, new_english: str) -> None:
+        """Replace a remembered line with its corrected version.
+
+        The second look calls this when it fixes a line, so that the next
+        lines are translated with the right words as their context rather
+        than the misheard ones.
+        """
+        for index, (src, _eng) in enumerate(self._history):
+            if src == source:
+                self._history[index] = (new_source, new_english)
+                return
 
     def close(self) -> None:
         self._session.close()
@@ -433,8 +452,21 @@ class LLMTranslator:
             for src, eng in self._history:
                 msgs.append({"role": "user", "content": src})
                 msgs.append({"role": "assistant", "content": eng})
-        msgs.append({"role": "user", "content": text})
+        msgs.append({"role": "user", "content": self._with_notes(text)})
         return msgs
+
+    def _with_notes(self, text: str) -> str:
+        """The line, followed by what any slang in it means.
+
+        Only the line itself goes into the history, so a note is shown once,
+        with the line it is about, and does not ride along as context.
+        """
+        if self._glossary is None:
+            return text
+        notes = self._glossary.notes(text)
+        if not notes:
+            return text
+        return text + _NOTE.format(notes="; ".join(notes))
 
     @staticmethod
     def _clean_partial(reply: str) -> str:

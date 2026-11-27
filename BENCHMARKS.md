@@ -216,6 +216,99 @@ four times the cost per line. chrF undersells a model that translates freely, so
 this is not proof that its lines read worse - but nothing here says they read
 better. The 14B specialist is the one that is clearly ahead.
 
+## Stream slang, and the second look
+
+`python -m bench.refine_bench`. These are measured on text, not audio, because
+they depend on lines following from each other and the audio samples are
+unrelated sentences. `bench/refine_cases.json` is a scripted VTuber-style
+stream of 28 lines, each given three ways: as said, as a recogniser typically
+writes it (homophones, slang spelt as something else, no question marks), and
+in English. 17 of the 28 contain a term from the glossary. It was written for
+this benchmark by the same hand as the glossary, so read it as "does the
+mechanism work", not as an accuracy figure for real streams.
+
+### The glossary
+
+First-pass translation of the script, with and without the notes and
+respelling from `subordinant/glossary.py`:
+
+| translator | chrF without | chrF with |
+|---|---|---|
+| Qwen3 4B Instruct | 41.8 | 46.1 |
+| Sugoi 14B Ultra | 47.2 | 56 - 60 over four runs |
+
+Japanese errors against what was said: 4.7% as heard, 2.7% once the known
+mishearings of slang are respelt (突待ち to 凸待ち, 同説 to 同接, ていてい to
+てぇてぇ). That step uses no model. What the notes change, on the 14B:
+
+```
+来週の土曜日に突待ちをやります。
+  without   I'm doing a tachiai next Saturday.
+  with      I'll be doing a call-in stream next Saturday.
+昨日のガチャ、天井まで回したのに爆死した
+  without   I pulled the gacha all the way to the ceiling yesterday, but I still got nothing.
+  with      I pulled the gacha all the way to the pity limit yesterday, but I still got nothing.
+支持コメはなしでお願いね
+  without   No likes on the comments, please.
+  with      No backseat comments, please.
+```
+
+The audio samples are the check on the other side - that ordinary Japanese is
+left alone. None of their 129 reference sentences contains a glossary term or
+a respelling. (Two did at first: ないまま matched ママ, because matching folds
+katakana and hiragana together. That entry now matches katakana only.)
+
+### The second look
+
+What ships is a rule: a line that stops on のに, けど, から or ので and is
+followed at once by another has the ending of its English reopened. On the
+script it joins 3 lines of 28 (14B first pass; 2 with the 4B), on the saved
+`balanced` run of the audio samples 3 of 158, and it changes no Japanese. chrF
+moves by 0.1 either way, which is to say the metric does not see it; it is for
+the reader, who otherwise gets two sentences where one was said.
+
+It is all that is left of a larger idea, and the rest is recorded here because
+each part was measured before it was removed. Sugoi 14B throughout unless
+said; "real output" is the finished lines of a saved `bench.run`, checked
+against the samples' reference text.
+
+| what the model was asked to do | script (28 lines) | real output |
+|---|---|---|
+| Return the whole line, Japanese and English | Japanese errors 4.7% to 2.9%, no line damaged; English 59.3 to 59.1 | four samples, live, Accuracy profile: kept Japanese 19.5% to 19.5%, English 59.4 to 59.5; final English 0.43 s later (p50), 0.73 s (p90) |
+| The same, Qwen3 4B | English 46.2 to 44.6: it writes the next line into this one | not run |
+| Name misheard words as pairs; one-kanji swaps only | 2.7% to 2.4%, 1 line repaired, none damaged | 14.64% to 14.84%: 12 lines "fixed" in 158, 7 more characters wrong |
+| Also say "this was a question" / "wrong subject" | 3 statements turned into questions, 1 right subject swapped | not run |
+| Only reopen the ending of a line known to run on | does it; chooses "but"/"so", which the particle already says | "Um..." to "Um," - replaced by the rule |
+
+Some of what the word-fixing form did to real output:
+
+```
+歯が痛いので口を開けることができません      ->  天が痛いので...
+  My tooth hurts so I can't open my mouth.  ->  The weather feels so bad that I can't open my mouth.
+無罪の人々はもちろん放免された              ->  無事の人々は...
+  Of course, the innocent people were released.  ->  Of course, the unharmed people were released.
+それ以外はよく思い出せない                  ->  それ意外は...     (以外 was right)
+```
+
+The last one is worth a sentence: the instructions at that point gave 以外/意外
+as an example of a homophone error, and the model applied the example to the
+first line that contained it. The instructions have no examples now.
+
+Two cautions about these figures. The real output is unrelated sentences, which
+is the worst case for anything that reads a line against its neighbours - on a
+real stream the context would help more than it does here, and no such
+recording with a checked transcript was to hand. And the models are a
+Japanese-to-English specialist and a 4B generalist, neither of them a
+proofreader. The model path is still in the code (`refine_fix_words`,
+`refine_model`) so that a different model can be put through the same test:
+
+```
+.venv\Scripts\python.exe -m bench.refine_bench --show --fix-words --llm <ollama tag>
+.venv\Scripts\python.exe -m bench.refine_bench --transcripts balanced --fix-words --llm <ollama tag>
+```
+
+It earns a place when the second of those lowers the error count.
+
 ## Taking them again
 
 The audio is not in the repository: it is cut from public speech datasets that

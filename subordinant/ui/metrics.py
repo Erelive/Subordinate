@@ -125,6 +125,7 @@ class MetricsPanel(QFrame):
                     ("first_token", "LLM first word", "How long the LLM takes to begin answering."),
                     ("lines", "Lines", "Sentences translated this session."),
                     ("fallback", "By fallback", "Lines finished by the built-in translator because the chosen one failed."),
+                    ("second", "Second look", "Finished lines corrected once the line after them had been heard."),
                 ],
             ),
             _Group(
@@ -188,6 +189,7 @@ class MetricsPanel(QFrame):
         v["first_token"].setText(_ms(m.get("llm_first_token_ms")))
         v["lines"].setText(str(m.get("utterances", 0)))
         v["fallback"].setText(str(m.get("fallback_lines", 0)))
+        v["second"].setText(str(m.get("second_look_changes", 0)))
         v["capture"].setText(_ms(m.get("capture_latency_ms")))
         v["backlog"].setText(_sec(m.get("backlog_sec")))
         v["backlog_max"].setText(_sec(m.get("backlog_max_sec")))

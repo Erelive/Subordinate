@@ -77,6 +77,7 @@ class Metrics:
         self.preview_latency = Rolling(100)
         self.final_latency = Rolling(100)
         self.mt_final_sec = Rolling(100)
+        self.second_look_sec = Rolling(100)
         self.mt_preview_sec = Rolling(200)
         self.llm_first_token_sec = Rolling(100)
         self.diarize_sec = 0.0
@@ -90,6 +91,10 @@ class Metrics:
         self.commits = 0
         self.mt_failures = 0
         self.fallback_lines = 0  # finals produced by the fallback translator
+        self.second_looks = 0  # finished lines read again
+        self.second_look_changes = 0  # ...and corrected
+        self.second_look_rejected = 0  # ...where the model's reply was thrown away
+        self.second_look_skipped = 0  # lines let go unchecked to catch up
 
         self.backlog_sec = 0.0
         self.backlog_max_sec = 0.0
@@ -203,6 +208,11 @@ class Metrics:
             "commits": self.commits,
             "mt_failures": self.mt_failures,
             "fallback_lines": self.fallback_lines,
+            "second_looks": self.second_looks,
+            "second_look_changes": self.second_look_changes,
+            "second_look_rejected": self.second_look_rejected,
+            "second_look_skipped": self.second_look_skipped,
+            "second_look_ms": ms(self.second_look_sec),
             "backlog_sec": round(self.backlog_sec, 2),
             "backlog_max_sec": round(self.backlog_max_sec, 2),
             "drops": self.backlog_drops,

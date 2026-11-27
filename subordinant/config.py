@@ -247,6 +247,9 @@ _LIMITS: dict[str, tuple[float, float]] = {
     "llm_context_utterances": (0, 20),
     "llm_max_tokens": (16, 1024),
     "llm_temperature": (0.0, 1.5),
+    "refine_lookahead": (0, 5),
+    "refine_wait_sec": (1.0, 60.0),
+    "refine_context_lines": (0, 12),
     "font_size": (10, 96),
     "ui_font_size": (8, 20),
     "translation_font_size": (9, 40),
@@ -516,6 +519,33 @@ class Config:
     # the load again on the next line.
     llm_keep_alive: str = "30m"
 
+    # --- second look (subordinant/refine.py) ---
+    # When a line turns out to have been the first half of a sentence - it
+    # stops on けど, のに, から and the next line follows at once - reopen
+    # the ending of its English so the two read as one. A rule, not a model:
+    # it costs nothing and works with every translator.
+    refine_enabled: bool = True
+    # Also show each finished line to an instruction model again and let it
+    # change words in the Japanese it judges to have been misheard. Off, and
+    # not offered in Settings, because with both models this was built
+    # against it makes the Japanese worse: on real recogniser output it
+    # "corrected" 歯が痛い to 天が痛い. It is here for trying a better model
+    # with - BENCHMARKS.md has the numbers and bench/refine_bench.py the test.
+    refine_fix_words: bool = False
+    # Ollama tag for that. Empty means the translation model.
+    refine_model: str = ""
+    # With refine_fix_words, a line is looked at again once this many later
+    # lines exist...
+    refine_lookahead: int = 2
+    # ...or after this long, whichever comes first. Without it, the wait is
+    # only for the one next line that a join needs.
+    refine_wait_sec: float = 6.0
+    # How many earlier lines the model is shown alongside it.
+    refine_context_lines: int = 4
+    # Attach the meaning of stream and net slang found in a line to what the
+    # LLM translators are shown - see subordinant/glossary.py.
+    slang_glossary: bool = True
+
     # --- speaker labelling ---
     # Label each utterance with who said it, and cut translation units at a
     # change of voice. See subordinant/diarize.py for why the labels drift.
@@ -744,6 +774,10 @@ class Config:
     # Capture buffer size in frames, at the device's native rate. Smaller means
     # lower capture latency and more callbacks.
     frames_per_buffer: int = 1024
+    # Image name of the one application to listen to, e.g. "chrome.exe". Empty
+    # means everything the PC plays. One app keeps a game's sound out of what
+    # the recogniser hears - see subordinant/appaudio.py.
+    capture_app: str = ""
 
     # Problems found while loading, in words fit to show the user. Not a
     # setting: excluded from comparison and never written to disk.

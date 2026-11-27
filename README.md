@@ -592,6 +592,110 @@ stream   ろよいいはじゃあ半分半分でやる?
 The Japanese is already wrong in the second case. No translation model recovers
 from that, which is why the glossary matters more than the choice of translator.
 
+## Stream slang
+
+A translator that has never met てぇてぇ renders it as whatever it sounds like,
+and one that knows 枠 only as "frame" turns "next stream" into "next frame".
+Earlier lines do not fix that: the word is simply not in the model.
+
+`subordinant/glossary.py` holds about 140 VTuber, net and gaming terms - 草,
+てぇてぇ, スパチャ, 枠, 凸待ち, 箱推し, 天井, 爆死 and the like - each with the
+spellings a recogniser tends to produce for it (凸待ち also arrives as 突待ち)
+and the ordinary compounds that are *not* the slang (草 in 雑草 is grass). The
+list is looked up, not pasted: each line is searched for the terms it contains
+and only those are shown to the LLM translator, as a note after that line. A
+line with no slang in it is translated exactly as before.
+
+```
+without   来週の土曜日に突待ちをやります。 -> I'm doing a tachiai next Saturday.
+with                                        -> I'm doing a call-in stream next Saturday.
+```
+
+The same list repairs the Japanese. A recogniser that has never met a word
+spells its sound with characters it does know - 凸待ち comes out as 突待ち,
+同接 as 同説, てぇてぇ as ていてい - and those spellings are not words, so there
+is nothing else they could have been. They are put right in the text before it
+is translated or shown, with no model involved.
+
+Both are on by default ("Explain stream slang to the translator" in Settings).
+The respelling applies to every translator; the notes reach the LLM
+translators only, since Sugoi v4 takes one sentence and nothing else and there
+is nowhere to put a note.
+
+## The second look
+
+Every line is translated the moment its speaker stops, which is before the
+next line exists. A few seconds later more is known, and the line can be
+corrected in place, once. A corrected line carries a small dot; hovering shows
+what it said first, and the context menu can copy that. The overlay is not
+touched: a caption over a game that rewrites itself after being read is a
+distraction.
+
+What is done with that hindsight is one thing, and it needs no model:
+
+```
+first     I decided I'm not going to spend any more money on this game.
+          Before I knew it, I spent 30,000 yen.
+second    I decided I'm not going to spend any more money on this game, but
+          Before I knew it, I spent 30,000 yen.
+```
+
+A line that stops on のに, けど, から or ので, and is followed within a couple
+of seconds by another from the same speaker, was the first half of a sentence.
+Its translation reads as a whole one because the translator was not told
+otherwise, so its ending is reopened and the two lines read as the one
+sentence they were. It is a rule (`join_to_next` in `subordinant/refine.py`):
+it costs nothing, adds no delay, and works with every translator.
+
+The idea was larger - show each line to the LLM again between its neighbours,
+and let it repair misheard Japanese and re-translate with hindsight. Every form
+of that was built and measured, and none of it survived with the models this
+app uses:
+
+- Asked for the line back, the model rewords English that was fine and
+  "corrects" Japanese by borrowing a word from the next line. No net gain on
+  real recogniser output, for most of a second per line that first
+  translations then queued behind.
+- Asked to name misheard words as pairs, and held to one kanji exchanged for
+  another, it fixes the errors planted in a test script and, on real output,
+  turns 歯が痛い ("my tooth hurts") into 天が痛い. More characters wrong after
+  than before.
+- Offered "this was a question" and "the subject was someone else" as verdicts,
+  Sugoi 14B declared three plain statements in twenty-eight lines to be
+  questions. Nothing in the text can check either claim.
+
+The numbers are in [BENCHMARKS.md](BENCHMARKS.md). The model path is still in
+the code behind `refine_fix_words`, off and not offered in Settings: what
+failed is these models, not the approach, and `bench/refine_bench.py` says in
+three minutes whether a different one does better.
+
+## Listening to one app
+
+By default the app hears everything the PC plays, which is what makes it work
+with no setup - and which means a game running next to the stream is mixed
+into what the recogniser hears. Music and effects under speech are the worst
+case in the benchmark.
+
+The source button on the toolbar ("All audio") lists the apps that have sound
+open. Choosing one captures that application and nothing else, using Windows'
+per-process loopback (Windows 11; on older systems the button says so and the
+app goes on listening to everything). The choice is
+remembered by program name, so it survives restarts of both apps; a browser is
+captured whole, whichever of its processes is actually playing. If the app is
+not running when Start is pressed, or is closed later, captions wait for it and
+resume when it is back.
+
+Two things about per-process capture that the code has to work around
+(`subordinant/appaudio.py`). When nothing is delivered - the app has been
+closed, or a Windows build that sends nothing for a silent app - the capture
+fills the gap with silence itself, because the voice detector has to hear the
+silence to know a sentence has ended. And Windows keeps only 30 ms of the
+app's audio waiting to be collected, discarding the rest without saying so;
+audio lost that way is replaced by silence of the same length, so timing stays
+true, and is counted under Dropped in the Stats panel. If that figure climbs,
+the machine is too busy to collect one app's audio in time and "All audio"
+will lose less.
+
 ## Labelling who is speaking
 
 Tick **Label speakers**, or pass `--speakers`. Each line is then tagged
@@ -744,6 +848,16 @@ The settings worth touching:
   of the preceding lines overriding a past tense that was plainly in the source.
   If translations drift toward what the conversation was about rather than what
   the line says, this is the knob
+- `slang_glossary` - attach the meaning of stream slang found in a line to
+  what the LLM translator is shown
+- `refine_enabled` - the second look: reopen the English ending of a line
+  that turned out to be the first half of a sentence
+- `refine_fix_words` - also ask an LLM to repair misheard words in finished
+  lines. Off: with the models here it does more harm than good. `refine_model`
+  names the Ollama tag to try it with (empty: the translation model), and
+  `refine_lookahead` / `refine_wait_sec` how long a line waits for context
+- `capture_app` - image name of the one app to listen to, e.g. `chrome.exe`;
+  empty for everything. The toolbar's source button writes this
 - `diarize_enabled` - label lines with who said it (`--speakers`)
 - `diarize_max_speakers` - how many people are talking; the most useful setting
 - `diarize_window_sec` - speech per embedding; short windows over-split
@@ -857,6 +971,20 @@ against what was said. Results and how to read them are in
 .venv\Scripts\python.exe -m bench.run --profile fast --fast-replay     # accuracy only, ~4 min
 .venv\Scripts\python.exe -m bench.report base-balanced balanced --samples
 ```
+
+The second look and the slang glossary are measured on text instead, because
+they depend on lines following from each other and the audio samples are
+unrelated sentences:
+
+```
+.venv\Scripts\python.exe -m bench.refine_bench --show                 # the script, both LLMs
+.venv\Scripts\python.exe -m bench.refine_bench --show --fix-words     # with the model path on
+.venv\Scripts\python.exe -m bench.refine_bench --transcripts balanced --fix-words
+```
+
+The last form runs the second look over the finished lines of a saved
+`bench.run` - what the recogniser really produced - where every change it
+makes can be counted against the reference.
 
 `--fast-replay` feeds the audio as fast as it is consumed. Recognition and
 segmentation come out as they would live, which is what iterating on accuracy

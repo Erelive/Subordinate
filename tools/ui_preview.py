@@ -51,6 +51,16 @@ def populate(model, speakers: bool = False) -> None:
             )
         )
     # One line still being finished: a draft, to show how it differs.
+    # One line as the second look leaves it: corrected, with its dot.
+    first = model.history.entries[-2]
+    model.revise(
+        Utterance(
+            id=first.id,
+            source=first.source,
+            english=first.english.rstrip(".") + ", didn't you?",
+            revised=True,
+        )
+    )
     model.add(
         Utterance(
             id=len(LINES) + 1,

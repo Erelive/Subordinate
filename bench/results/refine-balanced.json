@@ -1,0 +1,34 @@
+[
+ {
+  "model": "hf.co/sugoitoolkit/Sugoi-14B-Ultra-GGUF:Q4_K_M",
+  "transcripts": "balanced",
+  "checked": 3,
+  "changed": 3,
+  "errors_before": 508,
+  "errors_after": 508,
+  "reference_chars": 3471,
+  "changes": [
+   [
+    "05_casual_slang",
+    "メイドさんを連れてるけど",
+    "メイドさんを連れてるけど",
+    "She's got a maid with her.",
+    "She's got a maid with her, but"
+   ],
+   [
+    "05_casual_slang",
+    "え私のこといろいろ聞こうかと思ったのに",
+    "え私のこといろいろ聞こうかと思ったのに",
+    "Wait, I was gonna ask you all sorts of stuff about yourself.",
+    "Wait, I was gonna ask you all sorts of stuff about yourself, but"
+   ],
+   [
+    "05_casual_slang",
+    "ごめんなさいここに来れば何か思い出すかと思ったんだけど",
+    "ごめんなさいここに来れば何か思い出すかと思ったんだけど",
+    "Sorry, I thought coming here would trigger something I'd remember.",
+    "Sorry, I thought coming here would trigger something I'd remember, but"
+   ]
+  ]
+ }
+]

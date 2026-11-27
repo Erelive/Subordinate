@@ -13,8 +13,12 @@ Each row is one utterance:
 
 The English is the largest and brightest text in the window, because it is
 what the window is for. A line that is still a draft is drawn dimmer and in
-italics, and brightens in place when its final version arrives - the one
-change a line ever undergoes.
+italics, and brightens in place when its final version arrives.
+
+A finished line can change once more: a few seconds later the second look may
+correct it. That line carries a small dot beside it from then on, and hovering
+shows what it said before, so a reader who saw the first version is not left
+wondering whether they misread it.
 """
 
 from __future__ import annotations
@@ -81,6 +85,13 @@ class TranscriptModel(QAbstractListModel):
             return entry
         if role == Qt.ItemDataRole.DisplayRole:
             return entry.primary
+        if role == Qt.ItemDataRole.ToolTipRole and entry.revised:
+            lines = ["Corrected on a second look."]
+            if entry.first_english and entry.first_english != entry.english:
+                lines.append(f"First shown as: {entry.first_english}")
+            if entry.first_source and entry.first_source != entry.source:
+                lines.append(f"First heard as: {entry.first_source}")
+            return "\n".join(lines)
         return None
 
     def add(self, utterance) -> None:
@@ -99,6 +110,18 @@ class TranscriptModel(QAbstractListModel):
             # upsert has already removed them; tell the views after the fact.
             self.beginResetModel()
             self.endResetModel()
+
+    def revise(self, utterance) -> None:
+        """Apply a second-look correction to a line already shown as final."""
+        row = self.history.revise(utterance)
+        if row is None:
+            return
+        index = self.index(row)
+        self.dataChanged.emit(
+            index,
+            index,
+            [ENTRY_ROLE, Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole],
+        )
 
     def clear(self) -> None:
         self.beginResetModel()
@@ -285,6 +308,12 @@ class TranscriptDelegate(QStyledItemDelegate):
         else:
             font, color = self.draft_font, p.color("draft")
         layout, height = self._layout(primary, font, width)
+        if entry.revised:
+            # Level with the middle of the first line of text.
+            first_line = QFontMetricsF(font).height()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(p.color("accent"))
+            painter.drawEllipse(QPointF(x - 8.0, y + first_line / 2.0 + 0.5), 2.5, 2.5)
         painter.setPen(color)
         layout.draw(painter, QPointF(x, y))
         y += height
@@ -421,6 +450,11 @@ class TranscriptView(QListView):
             menu.addAction(
                 "Copy both",
                 lambda: self._copy(History.format_entry(entry, source=True)),
+            )
+        if entry.revised and entry.first_english:
+            menu.addSeparator()
+            menu.addAction(
+                "Copy the first version", lambda: self._copy(entry.first_english)
             )
         menu.exec(self.viewport().mapToGlobal(pos))
 

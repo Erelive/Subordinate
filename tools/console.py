@@ -55,6 +55,13 @@ class _Console(PipelineEvents):
             print(f"  {who}EN  {utterance.english}{delay}", flush=True)
 
 
+    def on_revision(self, utterance) -> None:
+        if utterance.first_source != utterance.source:
+            print(f"   *  JA  {utterance.first_source}  ->  {utterance.source}", flush=True)
+        if utterance.first_english != utterance.english:
+            print(f"   *  EN  {utterance.first_english}  ->  {utterance.english}", flush=True)
+
+
 def main() -> int:
     # Optional run length, so the pipeline can be exercised unattended.
     seconds = float(sys.argv[1]) if len(sys.argv) > 1 else None
@@ -93,7 +100,9 @@ def main() -> int:
             f"(worst 1 in 10: {show(s['final_latency_p90_sec'], ' s')})\n"
             f"{s['utterances']} lines: {s['eager_endpoints'] + s['pause_splits']} finished "
             f"early, {s['deferred_closes']} pauses waited out, {s['revised_lines']} "
-            f"corrections on re-reading"
+            f"corrections on re-reading\n"
+            f"second look: {s['second_look_changes']} lines corrected; "
+            f"audio dropped: {s.get('capture_dropped_sec', 0.0):.2f} s"
         )
     return 0
 

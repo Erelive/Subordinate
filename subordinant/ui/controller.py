@@ -56,6 +56,7 @@ class Bridge(QObject):
     caption = pyqtSignal(int, str, str)
     preview = pyqtSignal(int, str, str)
     utterance = pyqtSignal(int, object)
+    revision = pyqtSignal(int, object)
     metrics = pyqtSignal(int, dict)
     # From helper threads that are not a pipeline.
     translator_status = pyqtSignal(str, bool, str)
@@ -82,6 +83,9 @@ class _Events(PipelineEvents):
 
     def on_utterance(self, utterance):
         self._bridge.utterance.emit(self._generation, utterance)
+
+    def on_revision(self, utterance):
+        self._bridge.revision.emit(self._generation, utterance)
 
     def on_metrics(self, snapshot):
         self._bridge.metrics.emit(self._generation, snapshot)
@@ -138,6 +142,7 @@ class Controller(QObject):
         b.caption.connect(self._on_caption, queued)
         b.preview.connect(self._on_preview, queued)
         b.utterance.connect(self._on_utterance, queued)
+        b.revision.connect(self._on_revision, queued)
         b.metrics.connect(self._on_metrics, queued)
         b.translator_status.connect(self.window.settings_page.set_translator_status, queued)
         b.download_progress.connect(self.window.settings_page.set_download_progress, queued)
@@ -148,6 +153,7 @@ class Controller(QObject):
         w.stop_requested.connect(self.stop)
         w.pause_requested.connect(self.set_paused)
         w.profile_chosen.connect(self._choose_profile)
+        w.source_chosen.connect(self._choose_source)
         w.clear_requested.connect(self.clear)
         w.copy_latest_requested.connect(self.copy_latest)
         w.copy_all_requested.connect(self.copy_all)
@@ -256,6 +262,19 @@ class Controller(QObject):
             # Choosing a profile is asking for that profile now, not later.
             self.restart()
 
+    def _choose_source(self, exe: str) -> None:
+        """Listen to one app (its image name), or to everything ("")."""
+        if exe == self.cfg.capture_app:
+            return
+        log.info("audio source chosen: %s", exe or "everything")
+        self.cfg.capture_app = exe
+        self.window.sync_from_config()
+        self._refresh_engine_label()
+        self._save_timer.start()
+        if self._pipeline is not None and self._pipeline.running:
+            # Like a profile, a source is chosen to be listened to now.
+            self.restart()
+
     # -- pipeline events (GUI thread) -------------------------------------
 
     def _current(self, generation: int) -> bool:
@@ -312,6 +331,14 @@ class Controller(QObject):
             return
         self.model.add(utterance)
         self.overlay.show_utterance(utterance)
+
+    def _on_revision(self, generation: int, utterance) -> None:
+        if not self._current(generation):
+            return
+        # The window only. The overlay keeps the line as it was first shown:
+        # a caption over a game that rewrites itself after being read is a
+        # distraction, and by now it has usually been replaced anyway.
+        self.model.revise(utterance)
 
     def _on_metrics(self, generation: int, snapshot: dict) -> None:
         if self._current(generation):
@@ -421,9 +448,14 @@ class Controller(QObject):
             if cfg.mt_enabled and cfg.mt_backend == "llm" and cfg.mt_hybrid_preview
             else ""
         )
+        from ..appaudio import display_name
+
         self.window.set_ready_summary(
             [
                 f"{profile} profile",
+                f"Listens to {display_name(cfg.capture_app)} only"
+                if cfg.capture_app
+                else "Listens to everything this PC plays",
                 f"Hears with {short_model_name(cfg.model)}",
                 "Japanese captions only"
                 if translator == "no translation"

@@ -56,7 +56,7 @@ ENGINE_KEYS = frozenset(
         "mt_hybrid_preview", "mt_fallback_to_nmt", "mt_preview_min_confidence",
         "mt_preview_interval_sec",
         "llm_model", "llm_endpoint", "llm_context_utterances", "llm_context_reset_sec",
-        "llm_keep_honorifics",
+        "llm_keep_honorifics", "refine_enabled", "slang_glossary", "capture_app",
         "diarize_enabled", "diarize_max_speakers",
         "process_interval_sec", "min_chunk_sec", "max_buffer_sec", "commit_holdback_sec",
         "vad_mode", "vad_threshold", "endpoint_silence_sec", "eager_endpoint_sec",
@@ -369,6 +369,20 @@ class SettingsPage(QWidget):
         self._toggle(
             card, "llm_keep_honorifics", "Keep honorifics",
             "Leave -san, -chan, senpai and the like in the English.",
+        )
+        self._toggle(
+            card, "slang_glossary", "Explain stream slang to the translator",
+            "When a line contains VTuber, net or gaming slang - 草, てぇてぇ, "
+            "スパチャ, 枠, 凸待ち - tell the LLM translator what it means, and "
+            "put right the spellings a recogniser gives words it does not know.",
+        )
+        self._toggle(
+            card, "refine_enabled", "Second look",
+            "When a line turns out to be the first half of a sentence - it "
+            "stops on けど, のに or から and the next line follows at once - "
+            "reopen the ending of its English (\", but\") so the two read as "
+            "one. The corrected line carries a dot; hover to see the first "
+            "version.",
         )
         self._toggle(
             card, "mt_live_enabled", "Draft translation while speaking",

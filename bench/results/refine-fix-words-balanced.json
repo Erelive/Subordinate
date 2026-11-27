@@ -1,0 +1,118 @@
+[
+ {
+  "model": "hf.co/sugoitoolkit/Sugoi-14B-Ultra-GGUF:Q4_K_M",
+  "transcripts": "balanced",
+  "checked": 158,
+  "changed": 15,
+  "errors_before": 508,
+  "errors_after": 515,
+  "reference_chars": 3471,
+  "changes": [
+   [
+    "01_slow_clear",
+    "無罪の人々はもちろん放免された",
+    "無事の人々はもちろん放免された",
+    "Of course, the innocent people were released.",
+    "Of course, the unharmed people were released."
+   ],
+   [
+    "01_slow_clear",
+    "基礎側はしばしば日本のライン側と呼ばれている",
+    "基礎的はしばしば日本のライン側と呼ばれている",
+    "The foundational side is often referred to as the Japanese line side.",
+    "The foundational side is often referred to as the Japanese line side."
+   ],
+   [
+    "02_conversational",
+    "今朝の東京、風はなさそうですけどね、体感はどうでしょうか、近藤さん。",
+    "今朝の東京、気はなさそうですけどね、体感はどうでしょうか、近藤さん。",
+    "Tokyo this morning seems to have light wind, but how do you feel it, Kondo-san?",
+    "Tokyo this morning seems to have no wind, but how do you feel it, Kondo-san?"
+   ],
+   [
+    "02_conversational",
+    "変身が来てちょっと加工しすぎなので戻して",
+    "変更が来てちょっと加工しすぎなので戻して",
+    "The transformation came in and it was over-edited, so send it back.",
+    "The changes came in and it was over-edited, so send it back."
+   ],
+   [
+    "04_multi_speaker",
+    "そんな演出意と誰もわからないよ",
+    "そんな演出役と誰もわからないよ",
+    "Such a performance—no one understands it.",
+    "No one understands what it's for."
+   ],
+   [
+    "04_multi_speaker",
+    "元気一過ぎて普通の人には理解できなくなった",
+    "元気極過ぎて普通の人には理解できなくなった",
+    "So energetic it's beyond what ordinary people can understand.",
+    "So energetic it's beyond what ordinary people can comprehend."
+   ],
+   [
+    "05_casual_slang",
+    "メイドさんを連れてるけど",
+    "メイドさんを連れてるけど",
+    "She's got a maid with her.",
+    "She's got a maid with her, but"
+   ],
+   [
+    "05_casual_slang",
+    "え私のこといろいろ聞こうかと思ったのに",
+    "え私のこといろいろ聞こうかと思ったのに",
+    "Wait, I was gonna ask you all sorts of stuff about yourself.",
+    "Wait, I was gonna ask you all sorts of stuff about yourself, but"
+   ],
+   [
+    "05_casual_slang",
+    "ごめんなさいここに来れば何か思い出すかと思ったんだけど",
+    "ごめんなさいここに来れば何か思い出すかと思ったんだけど",
+    "Sorry, I thought coming here would trigger something I'd remember.",
+    "Sorry, I thought coming here would trigger something I'd remember, but"
+   ],
+   [
+    "06_background_music",
+    "今朝の東京、風はなさそうですけどね、体感はどうでしょうか、近藤さん。",
+    "今朝の東京、気はなさそうですけどね、体感はどうでしょうか、近藤さん。",
+    "Tokyo this morning seems to have light wind, but how do you feel it, Kondo-san?",
+    "Tokyo this morning seems to have no wind, but how do you feel it, Kondo-san?"
+   ],
+   [
+    "06_background_music",
+    "海行ったりすると紫外線当たると余計やすいって聞いたことあるんですそれって本当ですか",
+    "外行ったりすると紫外線当たると余計やすいって聞いたことあるんですそれって本当ですか",
+    "I heard that when you're out at sea, UV exposure makes it worse. Is that true?",
+    "I heard that when you're outside, UV exposure makes it worse. Is that true?"
+   ],
+   [
+    "06_background_music",
+    "変身が来てちょっと加工しすぎなので戻してます",
+    "変更が来てちょっと加工しすぎなので戻してます",
+    "The transformation effect came in and it was overprocessed, so I'm reverting it.",
+    "The edit came in and it was overprocessed, so I'm reverting it."
+   ],
+   [
+    "08_long_continuous",
+    "歯が痛いので口を開けることができません",
+    "天が痛いので口を開けることができません",
+    "My tooth hurts so I can't open my mouth.",
+    "The weather feels so bad that I can't open my mouth."
+   ],
+   [
+    "08_long_continuous",
+    "ら変身が来てちょっと加工しすぎなので戻してます",
+    "ら変更が来てちょっと加工しすぎなので戻してます",
+    "The transformation effect came in and was over-processed, so I'm reverting it.",
+    "The edit came in and was over-processed, so I'm reverting it."
+   ],
+   [
+    "08_long_continuous",
+    "1週間してそのニュースは本当になった",
+    "1週間してそのニュースは本物になった",
+    "It turned out to be true after a week.",
+    "It turned out to be real after a week."
+   ]
+  ]
+ }
+]

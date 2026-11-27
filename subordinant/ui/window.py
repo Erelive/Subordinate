@@ -29,6 +29,7 @@ from ctypes import wintypes
 from PyQt6.QtCore import QByteArray, QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QGuiApplication, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
+    QMenu,
     QButtonGroup,
     QFileDialog,
     QFrame,
@@ -295,6 +296,17 @@ class LivePage(QWidget):
         self.pause.setToolTip("Stop listening for a moment without unloading anything  (F6)")
         self.pause.setEnabled(False)
         bar.addWidget(self.pause)
+        # What is being listened to. A button with a menu rather than a
+        # setting three screens away, because it is changed with the audio:
+        # a game gets started, a different player is used.
+        self.source = QPushButton("All audio  ▾")
+        self.source.setObjectName("chip")
+        self.source.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.source.setToolTip(
+            "Choose what to listen to: everything, or one app so that a game's "
+            "sound stays out of the captions"
+        )
+        bar.addWidget(self.source)
         bar.addStretch(1)
 
         self.show_source = ToggleChip(
@@ -474,6 +486,7 @@ class MainWindow(QWidget):
     stop_requested = pyqtSignal()
     pause_requested = pyqtSignal(bool)
     profile_chosen = pyqtSignal(str)
+    source_chosen = pyqtSignal(str)  # an app's image name, or "" for everything
     clear_requested = pyqtSignal()
     copy_latest_requested = pyqtSignal()
     copy_all_requested = pyqtSignal()
@@ -540,6 +553,7 @@ class MainWindow(QWidget):
         live.stop.clicked.connect(self.stop_requested.emit)
         live.pause.clicked.connect(lambda: self.pause_requested.emit(not self._paused))
         live.profile.changed.connect(self.profile_chosen.emit)
+        live.source.clicked.connect(self._show_source_menu)
         live.clear.clicked.connect(self.clear_requested.emit)
         live.copy_latest.clicked.connect(self.copy_latest_requested.emit)
         live.copy_all.clicked.connect(self.copy_all_requested.emit)
@@ -686,9 +700,52 @@ class MainWindow(QWidget):
     def pal(self) -> Palette:
         return self._pal
 
+    def _show_source_menu(self) -> None:
+        """Offer everything, or one of the apps that have sound open."""
+        from .. import appaudio
+
+        chosen = self.cfg.capture_app.lower()
+        menu = QMenu(self)
+        everything = menu.addAction("Everything this PC plays")
+        everything.setCheckable(True)
+        everything.setChecked(not chosen)
+        everything.triggered.connect(lambda: self.source_chosen.emit(""))
+        menu.addSeparator()
+        if not appaudio.supported():
+            note = menu.addAction("Listening to one app needs Windows 11")
+            note.setEnabled(False)
+        else:
+            apps = appaudio.list_audio_apps()
+            listed = {app.exe.lower() for app in apps}
+            for app in apps:
+                label = f"Only {app.name}" + ("   (playing now)" if app.active else "")
+                action = menu.addAction(label)
+                action.setCheckable(True)
+                action.setChecked(app.exe.lower() == chosen)
+                action.triggered.connect(
+                    lambda _checked=False, exe=app.exe: self.source_chosen.emit(exe)
+                )
+            if chosen and chosen not in listed:
+                action = menu.addAction(
+                    f"Only {appaudio.display_name(self.cfg.capture_app)}   (not running)"
+                )
+                action.setCheckable(True)
+                action.setChecked(True)
+            if not apps:
+                note = menu.addAction("No app has played sound yet - start one, then look again")
+                note.setEnabled(False)
+        button = self.live_page.source
+        menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
+
     def sync_from_config(self) -> None:
         """Point the Live page's controls at what the config says."""
         live = self.live_page
+        from ..appaudio import display_name
+
+        live.source.setText(
+            (f"Only {display_name(self.cfg.capture_app)}" if self.cfg.capture_app else "All audio")
+            + "  ▾"
+        )
         name = detect_profile(self.cfg)
         live.profile.set_option_visible("custom", name == "custom")
         live.profile.set_current(name)

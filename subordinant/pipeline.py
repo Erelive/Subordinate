@@ -1,12 +1,16 @@
 """Wiring: capture -> speech gate -> streaming recogniser -> segmenter -> translators.
 
-Three threads, each doing the one thing that would otherwise block another:
+Up to four threads, each doing the one thing that would otherwise block another:
 
   engine    reads captured audio, runs the voice detector and the recogniser,
             decides where sentences end. Never translates.
   final     turns each finished sentence into its permanent English line.
             May take hundreds of milliseconds per line (an LLM); the engine
             does not wait for it.
+  refine    reads each finished line again a few seconds later, with the
+            lines that followed in view, and corrects it once (refine.py).
+            Only exists when there is an instruction model to do it with,
+            and always gives way to the thread above.
   preview   keeps a provisional English line for the sentence still being
             spoken. Latest request wins: a preview nobody will see is never
             computed.
@@ -58,6 +62,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import sys
 import threading
 import time
 from dataclasses import dataclass, field, replace
@@ -134,6 +139,17 @@ _LEAD_IN_SEC = 0.3
 # a tenth of a second.
 _TAIL_SLACK_SEC = 0.2
 
+# Finished lines kept for the second look to read around, and how many may
+# be waiting for theirs before the oldest is let go unchecked. Falling that
+# far behind means the model cannot keep up, and a correction to a line that
+# scrolled away a minute ago is not worth making the next one later still.
+_SEEN_LINES = 48
+_REFINE_BACKLOG = 10
+
+# Two lines are one sentence only if the second began this soon after the
+# first ended. Longer, and the speaker stopped and started again.
+_JOIN_GAP_SEC = 2.5
+
 
 @dataclass
 class Utterance:
@@ -156,6 +172,11 @@ class Utterance:
     engine: str = ""
     # Seconds from the last word being spoken to this line becoming final.
     latency: float | None = None
+    # Set on the one later update a final line can receive: its second look
+    # changed it. first_* are what it said until then.
+    revised: bool = False
+    first_source: str = ""
+    first_english: str = ""
 
 
 class PipelineEvents:
@@ -188,6 +209,10 @@ class PipelineEvents:
     def on_utterance(self, utterance: Utterance) -> None:
         """A translation unit: draft (final=False) or finished (final=True)."""
 
+    def on_revision(self, utterance: Utterance) -> None:
+        """A finished line was corrected on its second look. At most once
+        per line, some seconds after on_utterance sent it as final."""
+
     def on_metrics(self, snapshot: dict) -> None:
         """Performance counters, about once a second."""
 
@@ -198,6 +223,14 @@ class _Job:
     spoken_at: float  # perf_counter time the last word ended
     preview_gen: int
     words: list = field(default_factory=list)
+
+
+@dataclass
+class _Seen:
+    """A finished line, as the second look will read it."""
+
+    utterance: Utterance
+    done_at: float  # perf_counter time it became final
 
 
 class CaptionPipeline:
@@ -284,6 +317,22 @@ class CaptionPipeline:
         self._llm_failures = 0
         self._llm_replaced = False
         self._fallback_announced = False
+
+        # Stream slang: see glossary.py. Used here only to put right the
+        # spellings a recogniser gives words it does not know.
+        self._glossary = None
+        if cfg.slang_glossary and not self._direct:
+            from . import glossary
+
+            self._glossary = glossary.default()
+
+        # The second look. _seen is the tail of the transcript, oldest first;
+        # _seen_pos is the first line in it not yet looked at again.
+        self._refiner = None
+        self._refine_thread: threading.Thread | None = None
+        self._refine_cond = threading.Condition()
+        self._seen: list[_Seen] = []
+        self._seen_pos = 0
 
         self._preview_cond = threading.Condition()
         self._preview_req: tuple[int, str, float] | None = None
@@ -541,6 +590,33 @@ class CaptionPipeline:
             self._final_tr = self._nmt
             self._preview_tr = self._nmt
             self.metrics.translator = "Sugoi v4" if self._nmt else "none - Japanese only"
+        if not self._stop.is_set():
+            self._load_refiner()
+
+    def _load_refiner(self) -> None:
+        """Set up the second look (refine.py)."""
+        cfg = self.cfg
+        self._refiner = None
+        if not cfg.refine_enabled or self._final_tr is None:
+            return
+        from .refine import Refiner
+
+        try:
+            refiner = Refiner(cfg)
+        except TranslationUnavailable as exc:
+            # Only possible with refine_fix_words, which needs a model.
+            self._notice("warning", f"The second look is off: {exc}")
+            return
+        if refiner.uses_model:
+            llm_running = getattr(self._final_tr, "name", "") == "llm"
+            if not llm_running or refiner.model != cfg.llm_model:
+                self._set_state(
+                    LOADING,
+                    f"Loading second-look model: {short_model_name(refiner.model)}",
+                )
+                refiner.warmup()
+                self.models.note_llm(cfg.llm_endpoint, refiner.model)
+        self._refiner = refiner
 
     def _open_source(self):
         """Open the capture device, waiting for one to exist if need be."""
@@ -551,25 +627,65 @@ class CaptionPipeline:
 
         announced = False
         self._set_state(LOADING, "Opening audio device")
+        app = self.cfg.capture_app.strip()
+        if app:
+            from . import appaudio
+
+            if not appaudio.supported():
+                self._notice(
+                    "warning",
+                    "Listening to one app needs Windows 11, so this is "
+                    "listening to everything the PC plays instead.",
+                )
+                app = ""
+        if app:
+            # Windows keeps only 30 ms of a single app's audio waiting to be
+            # collected, and says nothing when it overflows. The thread that
+            # collects it needs the interpreter for a moment every 10 ms; at
+            # Python's default of handing it over every 5 ms, three busy
+            # threads are enough to make it late. Measured in appaudio's own
+            # tests: 0.8 s lost in 7 at the default, none at this.
+            sys.setswitchinterval(0.001)
         while not self._stop.is_set():
-            capture = LoopbackCapture(
-                frames_per_buffer=self.cfg.frames_per_buffer,
-                max_queue_sec=self.cfg.audio_queue_sec,
-                on_event=self._on_device_event,
-            )
+            if app:
+                capture = appaudio.ProcessCapture(
+                    app,
+                    frames_per_buffer=self.cfg.frames_per_buffer,
+                    max_queue_sec=self.cfg.audio_queue_sec,
+                    on_event=self._on_app_event,
+                )
+            else:
+                capture = LoopbackCapture(
+                    frames_per_buffer=self.cfg.frames_per_buffer,
+                    max_queue_sec=self.cfg.audio_queue_sec,
+                    on_event=self._on_device_event,
+                )
             try:
                 capture.start()
             except AudioDeviceError as exc:
                 if not announced:
                     announced = True
+                    text = str(exc)
                     self._set_state(
-                        ERROR, f"No audio device to listen to: {exc} Waiting for one."
+                        ERROR,
+                        f"{text[:1].upper()}{text[1:]} Captions start when it does."
+                        if app
+                        else f"No audio device to listen to: {exc} Waiting for one.",
                     )
                 self._stop.wait(2.0)
                 continue
             self.metrics.device_name = capture.device_name
             return capture
         return None
+
+    def _on_app_event(self, kind: str, message: str) -> None:
+        """The one app being listened to closed, or came back."""
+        self.metrics.device_reopens += 1
+        if kind == "lost":
+            self._notice("warning", f"{message}. Captions resume when it is running again.")
+        else:
+            self.metrics.device_name = message
+            self._notice("info", f"Listening to {message} again.")
 
     def _on_device_event(self, kind: str, message: str) -> None:
         self.metrics.device_reopens += 1
@@ -593,6 +709,11 @@ class CaptionPipeline:
                 target=self._preview_worker, name="caption-preview", daemon=True
             )
             self._preview_thread.start()
+        if self._refiner is not None:
+            self._refine_thread = threading.Thread(
+                target=self._refine_worker, name="caption-refine", daemon=True
+            )
+            self._refine_thread.start()
 
     def _stop_workers(self) -> None:
         """Sentinel the workers and give them a moment to notice.
@@ -611,6 +732,13 @@ class CaptionPipeline:
                 self._preview_cond.notify_all()
             self._preview_thread.join(timeout=2.0)
             self._preview_thread = None
+        if self._refine_thread is not None:
+            with self._refine_cond:
+                self._refine_cond.notify_all()
+            self._refine_thread.join(timeout=2.0)
+            self._refine_thread = None
+        if self._refiner is not None:
+            self._refiner.close()
 
     # -- engine loop -------------------------------------------------------
 
@@ -798,7 +926,11 @@ class CaptionPipeline:
         self._last_metrics = now
         metrics = self.metrics
         metrics.capture_dropped_blocks = getattr(source, "dropped_blocks", 0)
-        metrics.capture_dropped_sec = getattr(source, "dropped_sec", 0.0)
+        # lost_sec is the one-app capture's own count of audio Windows
+        # discarded before it could be collected.
+        metrics.capture_dropped_sec = getattr(source, "dropped_sec", 0.0) + getattr(
+            source, "lost_sec", 0.0
+        )
         if self.tracker is not None:
             metrics.speakers = self.tracker.speaker_count
         self._emit("on_metrics", metrics.snapshot())
@@ -1299,6 +1431,10 @@ class CaptionPipeline:
         # here rather than shown as an empty caption.
         if not source or not has_content(source):
             return
+        if self._glossary is not None:
+            # Slang the recogniser spelt as something else, put right before
+            # anything translates it or the transcript shows it.
+            source = self._glossary.respell(source)
         if source.strip().lower() in _HALLUCINATIONS:
             return
         # A syllable or two that repeats how the previous unit ended is that
@@ -1357,6 +1493,14 @@ class CaptionPipeline:
         utterance.latency = max(0.0, time.perf_counter() - spoken_at)
         self.metrics.final_latency.add(utterance.latency)
         self._send(utterance)
+        if self._refiner is not None and utterance.source and not self._stop.is_set():
+            with self._refine_cond:
+                self._seen.append(_Seen(replace(utterance), time.perf_counter()))
+                extra = len(self._seen) - _SEEN_LINES
+                if extra > 0:
+                    del self._seen[:extra]
+                    self._seen_pos = max(0, self._seen_pos - extra)
+                self._refine_cond.notify()
 
     # -- final translation -------------------------------------------------
 
@@ -1381,6 +1525,11 @@ class CaptionPipeline:
                 self._finish(job.utterance, job.spoken_at)
             finally:
                 self._final_busy = False
+                # The moment a line has just been finished is the moment the
+                # next one is furthest off, so it is when a second look is
+                # least likely to be in its way.
+                with self._refine_cond:
+                    self._refine_cond.notify()
 
     def _translate_final(self, job: _Job) -> None:
         utterance = job.utterance
@@ -1460,6 +1609,109 @@ class CaptionPipeline:
                 "translator has taken over. Press Stop then Start to try it again.",
             )
         return english, "nmt"
+
+    # -- second look -------------------------------------------------------
+
+    def _refine_pick(self):
+        """The next line due its second look, with its neighbours and whether
+        the next line follows straight on from it, or None.
+
+        Called with _refine_cond held. A line is due when enough later lines
+        exist to read it against, or when it has waited long enough that no
+        more are coming soon. Nothing is due while a first translation is in
+        hand or queued: the model is one model, and a line nobody has seen
+        yet goes before a line being improved.
+        """
+        cfg = self.cfg
+        # Joining a line to the next takes one line after it. Only the model
+        # path has a use for more.
+        lookahead = cfg.refine_lookahead if self._refiner.uses_model else 1
+        while len(self._seen) - self._seen_pos > _REFINE_BACKLOG:
+            self._seen_pos += 1
+            self.metrics.second_look_skipped += 1
+        waiting = len(self._seen) - self._seen_pos
+        if waiting <= 0 or self._final_busy or not self._final_q.empty():
+            return None
+        index = self._seen_pos
+        seen = self._seen[index]
+        age = time.perf_counter() - seen.done_at
+        if waiting - 1 < lookahead and age < cfg.refine_wait_sec:
+            return None
+        self._seen_pos += 1
+        # Lines from before a long silence are another conversation.
+        horizon = seen.done_at - cfg.llm_context_reset_sec
+        first = max(0, index - cfg.refine_context_lines)
+        before = [
+            (s.utterance.source, s.utterance.english)
+            for s in self._seen[first:index]
+            if s.done_at >= horizon
+        ]
+        following = self._seen[index + 1 : index + 1 + lookahead]
+        after = [(s.utterance.source, s.utterance.english) for s in following]
+        # Did the next line come straight after this one, in the same voice?
+        follows_on = bool(following) and (
+            0.0 <= following[0].utterance.start - seen.utterance.end <= _JOIN_GAP_SEC
+            and following[0].utterance.speaker == seen.utterance.speaker
+        )
+        return seen, before, after, follows_on
+
+    def _refine_worker(self) -> None:
+        from .refine import Line
+
+        refiner = self._refiner
+        failures = 0
+        while not self._stop.is_set():
+            with self._refine_cond:
+                picked = self._refine_pick()
+                if picked is None:
+                    self._refine_cond.wait(0.5)
+                    continue
+            seen, before, after, follows_on = picked
+            utterance = seen.utterance
+            t0 = time.perf_counter()
+            revision = refiner.refine(
+                Line(utterance.source, utterance.english),
+                [Line(*pair) for pair in before],
+                [Line(*pair) for pair in after],
+                follows_on=follows_on,
+            )
+            verdict = refiner.last_verdict
+            if verdict == "skipped":
+                continue
+            self.metrics.second_look_sec.add(time.perf_counter() - t0)
+            self.metrics.second_looks += 1
+            if verdict == "error":
+                failures += 1
+                if failures >= 3:
+                    # Stop paying the timeout on every line. First
+                    # translations are unaffected; Start again to retry.
+                    self._notice(
+                        "warning",
+                        f"The second look has stopped: {refiner.last_error}",
+                    )
+                    return
+                continue
+            failures = 0
+            if verdict.startswith("bad"):
+                self.metrics.second_look_rejected += 1
+            if revision is None or self._stop.is_set():
+                continue
+            first_source, first_english = utterance.source, utterance.english
+            with self._refine_cond:
+                # Under the lock because _refine_pick reads these lines as
+                # the context of the next one.
+                utterance.source = revision.source
+                utterance.english = revision.english
+                utterance.revised = True
+                utterance.first_source = first_source
+                utterance.first_english = first_english
+                if not utterance.engine:
+                    utterance.engine = "llm"
+            self.metrics.second_look_changes += 1
+            amend = getattr(self._final_tr, "amend", None)
+            if amend is not None:
+                amend(first_source, revision.source, revision.english)
+            self._emit("on_revision", replace(utterance))
 
     # -- preview -----------------------------------------------------------
 

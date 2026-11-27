@@ -73,8 +73,20 @@ class Recorder:
             {"t": self.now(), "english": english, "source": source or self.current_source}
         )
 
-    def final(self, source: str, english: str, speaker: int = -1, **_extra) -> None:
-        self.finals.append({"t": self.now(), "source": source, "english": english})
+    def final(self, source: str, english: str, speaker: int = -1, ident: int = 0) -> None:
+        self.finals.append(
+            {"t": self.now(), "source": source, "english": english, "id": ident}
+        )
+
+    def revise(self, ident: int, source: str, english: str) -> None:
+        """A second-look correction: the line is scored as it ended up, at the
+        time it was first shown. What it said first is kept beside it."""
+        for line in reversed(self.finals):
+            if line.get("id") == ident:
+                line["first_source"], line["first_english"] = line["source"], line["english"]
+                line["source"], line["english"] = source, english
+                line["revised_at"] = self.now()
+                return
 
     def record(self) -> dict:
         return {
@@ -321,10 +333,15 @@ def _build_current(module, session: _Session, capture, recorder):
             if utterance.final:
                 # Whisper translating directly has no Japanese to report; the
                 # English is the only text there is to place in the reference.
-                recorder.final(utterance.source, utterance.english, utterance.speaker)
+                recorder.final(
+                    utterance.source, utterance.english, utterance.speaker, utterance.id
+                )
             elif utterance.english:
                 # A draft line in the transcript is provisional English too.
                 recorder.preview(utterance.english, utterance.source)
+
+        def on_revision(self, utterance):
+            recorder.revise(utterance.id, utterance.source, utterance.english)
 
         def on_state(self, state, detail):
             recorder.states.append({"t": recorder.now(), "state": state, "detail": detail})

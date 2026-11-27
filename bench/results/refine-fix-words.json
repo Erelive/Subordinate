@@ -1,0 +1,488 @@
+[
+ {
+  "model": "qwen3:4b-instruct",
+  "first": "llm",
+  "glossary": true,
+  "cer_heard": 0.04656319290465632,
+  "cer_before": 0.026607538802660754,
+  "cer_after": 0.026607538802660754,
+  "lines_repaired": 0,
+  "lines_damaged": 0,
+  "chrf_before": 46.13694490611173,
+  "chrf_after": 46.17028846051686,
+  "verdicts": {
+   "same": 26,
+   "changed": 2
+  },
+  "ms_per_line": 299.7158214285654,
+  "lines": [
+   {
+    "said": "みんなこんばんは、今日も来てくれてありがとう。",
+    "heard": "みんなこんばんは、今日も来てくれてありがとう。",
+    "repaired": "みんなこんばんは、今日も来てくれてありがとう。",
+    "first": "Good night everyone, thanks for coming tonight.",
+    "second": "Good night everyone, thanks for coming tonight.",
+    "reference": "Good evening everyone, thanks for coming again today."
+   },
+   {
+    "said": "今日はね、雑談枠なんだけど、ちょっとお知らせがあります。",
+    "heard": "今日はね、雑談枠なんだけど、ちょっとお知らせがあります。",
+    "repaired": "今日はね、雑談枠なんだけど、ちょっとお知らせがあります。",
+    "first": "Tonight, we're doing a casual chat segment, but I have a little announcement to make.",
+    "second": "Tonight, we're doing a casual chat segment, but I have a little announcement to make.",
+    "reference": "Today's just a chatting stream, but I have a little announcement."
+   },
+   {
+    "said": "来週の土曜日に凸待ちをやります。",
+    "heard": "来週の土曜日に凸待ちをやります。",
+    "repaired": "来週の土曜日に凸待ちをやります。",
+    "first": "We'll be doing a call-in stream on Saturday next week.",
+    "second": "We'll be doing a call-in stream on Saturday next week.",
+    "reference": "Next Saturday I'm doing a call-in stream."
+   },
+   {
+    "said": "誰も来なかったらどうしよう。",
+    "heard": "誰も来なかったらどうしよう",
+    "repaired": "誰も来なかったらどうしよう",
+    "first": "What if nobody shows up?",
+    "second": "What if nobody shows up?",
+    "reference": "What if nobody comes?"
+   },
+   {
+    "said": "かなたちゃんは来てくれるって言ってた。",
+    "heard": "かなたちゃんは来てくれるって言ってた",
+    "repaired": "かなたちゃんは来てくれるって言ってた",
+    "first": "Kanata-chan said she'd be coming.",
+    "second": "Kanata-chan said she'd be coming.",
+    "reference": "Kanata-chan said she'd come."
+   },
+   {
+    "said": "あ、スパチャありがとう、赤スパじゃん。",
+    "heard": "あ、スパチャありがとう、赤スパじゃん",
+    "repaired": "あ、スパチャありがとう、赤スパじゃん",
+    "first": "Ah, thanks for the Super Chat, it's the red one, right?",
+    "second": "Ah, thanks for the Super Chat, it's the red one, right?",
+    "reference": "Oh, thanks for the Super Chat, and it's a red one!"
+   },
+   {
+    "said": "初見です、昨日の切り抜きから来ました。",
+    "heard": "初見です昨日の切り抜きから来ました",
+    "repaired": "初見です昨日の切り抜きから来ました",
+    "first": "First-time viewer, came in from yesterday's clip.",
+    "second": "First-time viewer, came in from yesterday's clip.",
+    "reference": "\"First time here, I came from yesterday's clip.\""
+   },
+   {
+    "said": "初見さんいらっしゃい、ゆっくりしていってね。",
+    "heard": "初見さんいらっしゃい、ゆっくりしていってね",
+    "repaired": "初見さんいらっしゃい、ゆっくりしていってね",
+    "first": "Welcome, first-time viewer, take your time and enjoy!",
+    "second": "Welcome, first-time viewer, take your time and enjoy!",
+    "reference": "Welcome, first-timer, make yourself at home."
+   },
+   {
+    "said": "昨日のコラボ、てぇてぇって言われてて草。",
+    "heard": "昨日のコラボ、てぇてぇって言われてて草",
+    "repaired": "昨日のコラボ、てぇてぇって言われてて草",
+    "first": "The collab was called \"teete\", that was so precious. Lol.",
+    "second": "The collab was called \"teete\", that was so precious. Lol.",
+    "reference": "People were calling yesterday's collab precious, lol."
+   },
+   {
+    "said": "かなたちゃんがずっと私のこと褒めてくるんだもん。",
+    "heard": "彼方ちゃんがずっと私のこと褒めてくるんだもん",
+    "repaired": "彼方ちゃんがずっと私のこと褒めてくるんだもん",
+    "first": "Hie-chan has been constantly praising me all along.",
+    "second": "Hie-chan has been constantly praising me all along.",
+    "reference": "Kanata-chan just kept complimenting me the whole time."
+   },
+   {
+    "said": "で、ゲームの話なんだけど",
+    "heard": "で、ゲームの話なんだけど",
+    "repaired": "で、ゲームの話なんだけど",
+    "first": "Well, about the game...",
+    "second": "Well, about the game...",
+    "reference": "So, about the game..."
+   },
+   {
+    "said": "昨日のガチャ、天井まで回したのに爆死した。",
+    "heard": "昨日のガチャ、天井まで回したのに爆死した",
+    "repaired": "昨日のガチャ、天井まで回したのに爆死した",
+    "first": "I pulled the gacha until the pity limit, and still got nothing.",
+    "second": "I pulled the gacha until the pity limit, and still got nothing.",
+    "reference": "Yesterday's gacha, I pulled all the way to pity and still got nothing."
+   },
+   {
+    "said": "意外と出ないもんだね。",
+    "heard": "以外と出ないもんだね",
+    "repaired": "以外と出ないもんだね",
+    "first": "Turns out it's not that common.",
+    "second": "Turns out it's not that common.",
+    "reference": "It's surprisingly hard to get, huh."
+   },
+   {
+    "said": "課金はもうしないって決めたのに",
+    "heard": "課金はもうしないって決めたのに",
+    "repaired": "課金はもうしないって決めたのに",
+    "first": "I've already decided I'm not spending real money anymore.",
+    "second": "I've already decided I'm not spending real money anymore, but",
+    "reference": "Even though I'd decided not to spend any more money,"
+   },
+   {
+    "said": "気づいたら三万円使ってた。",
+    "heard": "気づいたら3万円使ってた",
+    "repaired": "気づいたら3万円使ってた",
+    "first": "I didn't even realize I'd spent 30,000 yen.",
+    "second": "I didn't even realize I'd spent 30,000 yen.",
+    "reference": "before I knew it I'd spent 30,000 yen."
+   },
+   {
+    "said": "マネージャーさんに怒られるかな。",
+    "heard": "マネージャーさんに怒られるかな",
+    "repaired": "マネージャーさんに怒られるかな",
+    "first": "Maybe the manager will get mad at me.",
+    "second": "Maybe the manager will get mad at me.",
+    "reference": "I wonder if my manager will be mad at me."
+   },
+   {
+    "said": "怒られた？",
+    "heard": "怒られた",
+    "repaired": "怒られた",
+    "first": "Got mad.",
+    "second": "Got mad.",
+    "reference": "\"Did you get scolded?\""
+   },
+   {
+    "said": "まだ言ってないからセーフ。",
+    "heard": "まだ言ってないからセーフ",
+    "repaired": "まだ言ってないからセーフ",
+    "first": "Didn't say anything yet, so I'm safe.",
+    "second": "Didn't say anything yet, so I'm safe.",
+    "reference": "I haven't told her yet, so I'm safe."
+   },
+   {
+    "said": "それより次の歌枠、何歌ってほしい？",
+    "heard": "それより次の歌枠、何歌ってほしい",
+    "repaired": "それより次の歌枠、何歌ってほしい",
+    "first": "As for the next song, what should I sing?",
+    "second": "As for the next song, what should I sing?",
+    "reference": "Anyway, what do you want me to sing on the next karaoke stream?"
+   },
+   {
+    "said": "新衣装のお披露目もそろそろしたいんだよね。",
+    "heard": "新衣装のお披露目もそろそろしたいんだよね",
+    "repaired": "新衣装のお披露目もそろそろしたいんだよね",
+    "first": "We should soon reveal the new outfit, right?",
+    "second": "We should soon reveal the new outfit, right?",
+    "reference": "I'd like to do my new outfit reveal soon, too."
+   },
+   {
+    "said": "ママが今描いてくれてるから、もうちょっと待ってね。",
+    "heard": "ママが今書いてくれてるから、もうちょっと待ってね",
+    "repaired": "ママが今書いてくれてるから、もうちょっと待ってね",
+    "first": "Mom's already working on it, so wait a bit longer, okay?",
+    "second": "Mom's already working on it, so wait a bit longer, okay?",
+    "reference": "My character artist is drawing it right now, so wait a little longer."
+   },
+   {
+    "said": "同接が五千人超えてる、ありがとう。",
+    "heard": "同接が5000人超えてる、ありがとう",
+    "repaired": "同接が5000人超えてる、ありがとう",
+    "first": "Concurrent viewers have surpassed 5000, thanks!",
+    "second": "Concurrent viewers have surpassed 5000, thanks!",
+    "reference": "We're over 5,000 concurrent viewers, thank you!"
+   },
+   {
+    "said": "この前の耐久配信は十二時間かかったけど",
+    "heard": "この前の耐久配信は12時間かかったけど",
+    "repaired": "この前の耐久配信は12時間かかったけど",
+    "first": "The last endurance stream took 12 hours though.",
+    "second": "The last endurance stream took 12 hours though,",
+    "reference": "The endurance stream the other day took twelve hours, but"
+   },
+   {
+    "said": "沼りすぎて台パンしそうだった。",
+    "heard": "沼りすぎて台パンしそうだった",
+    "repaired": "沼りすぎて台パンしそうだった",
+    "first": "I'm so stuck I'm about to desk slam.",
+    "second": "I'm so stuck I'm about to desk slam.",
+    "reference": "I got stuck so badly I almost slammed my desk."
+   },
+   {
+    "said": "指示コメはなしでお願いね。",
+    "heard": "指示コメはなしでお願いね",
+    "repaired": "指示コメはなしでお願いね",
+    "first": "No backseating comments, please.",
+    "second": "No backseating comments, please.",
+    "reference": "No backseating in chat, please."
+   },
+   {
+    "said": "箱推しの人も単推しの人もありがとう。",
+    "heard": "箱推しの人も単推しの人もありがとう",
+    "repaired": "箱推しの人も単推しの人もありがとう",
+    "first": "Thanks to both the group supporters and the single-member supporters.",
+    "second": "Thanks to both the group supporters and the single-member supporters.",
+    "reference": "Thank you, whether you support the whole group or just me."
+   },
+   {
+    "said": "じゃあ今日はこの辺で終わります。",
+    "heard": "じゃあ今日はこの辺で終わります",
+    "repaired": "じゃあ今日はこの辺で終わります",
+    "first": "So I'll wrap up for today.",
+    "second": "So I'll wrap up for today.",
+    "reference": "Well, that's all for today."
+   },
+   {
+    "said": "チャンネル登録と高評価もよろしくね。",
+    "heard": "チャンネル登録と高評価もよろしくね",
+    "repaired": "チャンネル登録と高評価もよろしくね",
+    "first": "Thanks for subscribing and liking too!",
+    "second": "Thanks for subscribing and liking too!",
+    "reference": "Please subscribe and leave a like, too."
+   }
+  ]
+ },
+ {
+  "model": "hf.co/sugoitoolkit/Sugoi-14B-Ultra-GGUF:Q4_K_M",
+  "first": "llm",
+  "glossary": true,
+  "cer_heard": 0.04656319290465632,
+  "cer_before": 0.026607538802660754,
+  "cer_after": 0.024390243902439025,
+  "lines_repaired": 1,
+  "lines_damaged": 0,
+  "chrf_before": 59.57025808672234,
+  "chrf_after": 59.60259548087256,
+  "verdicts": {
+   "same": 24,
+   "changed": 4
+  },
+  "ms_per_line": 566.2981642855292,
+  "lines": [
+   {
+    "said": "みんなこんばんは、今日も来てくれてありがとう。",
+    "heard": "みんなこんばんは、今日も来てくれてありがとう。",
+    "repaired": "みんなこんばんは、今日も来てくれてありがとう。",
+    "first": "Good evening everyone, thanks for coming again today.",
+    "second": "Good evening everyone, thanks for coming again today.",
+    "reference": "Good evening everyone, thanks for coming again today."
+   },
+   {
+    "said": "今日はね、雑談枠なんだけど、ちょっとお知らせがあります。",
+    "heard": "今日はね、雑談枠なんだけど、ちょっとお知らせがあります。",
+    "repaired": "今日はね、雑談枠なんだけど、ちょっとお知らせがあります。",
+    "first": "Today's a chatting stream, but I have a little announcement.",
+    "second": "Today's a chatting stream, but I have a little announcement.",
+    "reference": "Today's just a chatting stream, but I have a little announcement."
+   },
+   {
+    "said": "来週の土曜日に凸待ちをやります。",
+    "heard": "来週の土曜日に凸待ちをやります。",
+    "repaired": "来週の土曜日に凸待ちをやります。",
+    "first": "I'll be doing a call-in stream next Saturday.",
+    "second": "I'll be doing a call-in stream next Saturday.",
+    "reference": "Next Saturday I'm doing a call-in stream."
+   },
+   {
+    "said": "誰も来なかったらどうしよう。",
+    "heard": "誰も来なかったらどうしよう",
+    "repaired": "誰も来なかったらどうしよう",
+    "first": "What if no one shows up?",
+    "second": "What if no one shows up?",
+    "reference": "What if nobody comes?"
+   },
+   {
+    "said": "かなたちゃんは来てくれるって言ってた。",
+    "heard": "かなたちゃんは来てくれるって言ってた",
+    "repaired": "かなたちゃんは来てくれるって言ってた",
+    "first": "Kanata-chan said she'd come.",
+    "second": "Kanata-chan said she'd come.",
+    "reference": "Kanata-chan said she'd come."
+   },
+   {
+    "said": "あ、スパチャありがとう、赤スパじゃん。",
+    "heard": "あ、スパチャありがとう、赤スパじゃん",
+    "repaired": "あ、スパチャありがとう、赤スパじゃん",
+    "first": "Ah, thanks for the Super Chat, it's a red one.",
+    "second": "Ah, thanks for the Super Chat, it's a red one.",
+    "reference": "Oh, thanks for the Super Chat, and it's a red one!"
+   },
+   {
+    "said": "初見です、昨日の切り抜きから来ました。",
+    "heard": "初見です昨日の切り抜きから来ました",
+    "repaired": "初見です昨日の切り抜きから来ました",
+    "first": "I'm a first-time viewer, I came here from yesterday's clip.",
+    "second": "I'm a first-time viewer, I came here from yesterday's clip.",
+    "reference": "\"First time here, I came from yesterday's clip.\""
+   },
+   {
+    "said": "初見さんいらっしゃい、ゆっくりしていってね。",
+    "heard": "初見さんいらっしゃい、ゆっくりしていってね",
+    "repaired": "初見さんいらっしゃい、ゆっくりしていってね",
+    "first": "Welcome, first-time viewer, take your time.",
+    "second": "Welcome, first-time viewer, take your time.",
+    "reference": "Welcome, first-timer, make yourself at home."
+   },
+   {
+    "said": "昨日のコラボ、てぇてぇって言われてて草。",
+    "heard": "昨日のコラボ、てぇてぇって言われてて草",
+    "repaired": "昨日のコラボ、てぇてぇって言われてて草",
+    "first": "Yesterday's collab was called \"precious\" and it made me laugh.",
+    "second": "Yesterday's collab was called \"precious\" and it made me laugh.",
+    "reference": "People were calling yesterday's collab precious, lol."
+   },
+   {
+    "said": "かなたちゃんがずっと私のこと褒めてくるんだもん。",
+    "heard": "彼方ちゃんがずっと私のこと褒めてくるんだもん",
+    "repaired": "彼方ちゃんがずっと私のこと褒めてくるんだもん",
+    "first": "Hikari-chan has been complimenting me the whole time.",
+    "second": "Hikari-chan has been complimenting me the whole time.",
+    "reference": "Kanata-chan just kept complimenting me the whole time."
+   },
+   {
+    "said": "で、ゲームの話なんだけど",
+    "heard": "で、ゲームの話なんだけど",
+    "repaired": "で、ゲームの話なんだけど",
+    "first": "So, let's talk about the game.",
+    "second": "So, let's talk about the game,",
+    "reference": "So, about the game..."
+   },
+   {
+    "said": "昨日のガチャ、天井まで回したのに爆死した。",
+    "heard": "昨日のガチャ、天井まで回したのに爆死した",
+    "repaired": "昨日のガチャ、天井まで回したのに爆死した",
+    "first": "I pulled the gacha all the way to the pity limit yesterday, but I still got nothing.",
+    "second": "I pulled the gacha all the way to the pity limit yesterday, but I still got nothing.",
+    "reference": "Yesterday's gacha, I pulled all the way to pity and still got nothing."
+   },
+   {
+    "said": "意外と出ないもんだね。",
+    "heard": "以外と出ないもんだね",
+    "repaired": "意外と出ないもんだね",
+    "first": "They don't come out as often as you'd think.",
+    "second": "They don't come out as often as you'd expect.",
+    "reference": "It's surprisingly hard to get, huh."
+   },
+   {
+    "said": "課金はもうしないって決めたのに",
+    "heard": "課金はもうしないって決めたのに",
+    "repaired": "課金はもうしないって決めたのに",
+    "first": "I decided I'm not going to spend any more money on this game.",
+    "second": "I decided I'm not going to spend any more money on this game, but",
+    "reference": "Even though I'd decided not to spend any more money,"
+   },
+   {
+    "said": "気づいたら三万円使ってた。",
+    "heard": "気づいたら3万円使ってた",
+    "repaired": "気づいたら3万円使ってた",
+    "first": "Before I knew it, I spent 30,000 yen.",
+    "second": "Before I knew it, I spent 30,000 yen.",
+    "reference": "before I knew it I'd spent 30,000 yen."
+   },
+   {
+    "said": "マネージャーさんに怒られるかな。",
+    "heard": "マネージャーさんに怒られるかな",
+    "repaired": "マネージャーさんに怒られるかな",
+    "first": "Will the manager get mad at me?",
+    "second": "Will the manager get mad at me?",
+    "reference": "I wonder if my manager will be mad at me."
+   },
+   {
+    "said": "怒られた？",
+    "heard": "怒られた",
+    "repaired": "怒られた",
+    "first": "She got mad at me.",
+    "second": "She got mad at me.",
+    "reference": "\"Did you get scolded?\""
+   },
+   {
+    "said": "まだ言ってないからセーフ。",
+    "heard": "まだ言ってないからセーフ",
+    "repaired": "まだ言ってないからセーフ",
+    "first": "I haven't told her yet, so I'm safe.",
+    "second": "I haven't told her yet, so I'm safe.",
+    "reference": "I haven't told her yet, so I'm safe."
+   },
+   {
+    "said": "それより次の歌枠、何歌ってほしい？",
+    "heard": "それより次の歌枠、何歌ってほしい",
+    "repaired": "それより次の歌枠、何歌ってほしい",
+    "first": "Anyway, for my next song, what do you want me to sing?",
+    "second": "Anyway, for my next song, what do you want me to sing?",
+    "reference": "Anyway, what do you want me to sing on the next karaoke stream?"
+   },
+   {
+    "said": "新衣装のお披露目もそろそろしたいんだよね。",
+    "heard": "新衣装のお披露目もそろそろしたいんだよね",
+    "repaired": "新衣装のお披露目もそろそろしたいんだよね",
+    "first": "I also want to reveal my new outfit soon.",
+    "second": "I also want to reveal my new outfit soon.",
+    "reference": "I'd like to do my new outfit reveal soon, too."
+   },
+   {
+    "said": "ママが今描いてくれてるから、もうちょっと待ってね。",
+    "heard": "ママが今書いてくれてるから、もうちょっと待ってね",
+    "repaired": "ママが今書いてくれてるから、もうちょっと待ってね",
+    "first": "Mom is writing it for me right now, so please wait a little longer.",
+    "second": "Mom is writing it for me right now, so please wait a little longer.",
+    "reference": "My character artist is drawing it right now, so wait a little longer."
+   },
+   {
+    "said": "同接が五千人超えてる、ありがとう。",
+    "heard": "同接が5000人超えてる、ありがとう",
+    "repaired": "同接が5000人超えてる、ありがとう",
+    "first": "We have more than 5,000 concurrent viewers, thank you.",
+    "second": "We have more than 5,000 concurrent viewers, thank you.",
+    "reference": "We're over 5,000 concurrent viewers, thank you!"
+   },
+   {
+    "said": "この前の耐久配信は十二時間かかったけど",
+    "heard": "この前の耐久配信は12時間かかったけど",
+    "repaired": "この前の耐久配信は12時間かかったけど",
+    "first": "The last endurance stream took 12 hours.",
+    "second": "The last endurance stream took 12 hours, but",
+    "reference": "The endurance stream the other day took twelve hours, but"
+   },
+   {
+    "said": "沼りすぎて台パンしそうだった。",
+    "heard": "沼りすぎて台パンしそうだった",
+    "repaired": "沼りすぎて台パンしそうだった",
+    "first": "I got stuck and was about to desk slam.",
+    "second": "I got stuck and was about to desk slam.",
+    "reference": "I got stuck so badly I almost slammed my desk."
+   },
+   {
+    "said": "指示コメはなしでお願いね。",
+    "heard": "指示コメはなしでお願いね",
+    "repaired": "指示コメはなしでお願いね",
+    "first": "No backseat comments, please.",
+    "second": "No backseat comments, please.",
+    "reference": "No backseating in chat, please."
+   },
+   {
+    "said": "箱推しの人も単推しの人もありがとう。",
+    "heard": "箱推しの人も単推しの人もありがとう",
+    "repaired": "箱推しの人も単推しの人もありがとう",
+    "first": "Thanks to those who support the whole group and those who support just one member.",
+    "second": "Thanks to those who support the whole group and those who support just one member.",
+    "reference": "Thank you, whether you support the whole group or just me."
+   },
+   {
+    "said": "じゃあ今日はこの辺で終わります。",
+    "heard": "じゃあ今日はこの辺で終わります",
+    "repaired": "じゃあ今日はこの辺で終わります",
+    "first": "Well, I'll wrap it up for today.",
+    "second": "Well, I'll wrap it up for today.",
+    "reference": "Well, that's all for today."
+   },
+   {
+    "said": "チャンネル登録と高評価もよろしくね。",
+    "heard": "チャンネル登録と高評価もよろしくね",
+    "repaired": "チャンネル登録と高評価もよろしくね",
+    "first": "Don't forget to subscribe and like the video.",
+    "second": "Don't forget to subscribe and like the video.",
+    "reference": "Please subscribe and leave a like, too."
+   }
+  ]
+ }
+]

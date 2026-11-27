@@ -17,6 +17,10 @@ fails silently on the others:
     headset leaves the old loopback stream open and perfectly healthy and
     completely silent; without the watcher the app would sit on "listening"
     forever with nothing to listen to.
+
+The first two are not about the device at all, so they live in CaptureBase,
+which appaudio.ProcessCapture (one application instead of the whole PC) feeds
+through the same queues and converter.
 """
 
 from __future__ import annotations
@@ -147,130 +151,58 @@ def default_output_id() -> str | None:
         return None
 
 
-class LoopbackCapture:
-    """Captures system audio into a queue of mono 16 kHz float32 blocks.
+class CaptureBase:
+    """The half of a capture that does not care where the audio comes from.
 
-    The PyAudio callback runs on a realtime-ish thread, so it only copies bytes
-    into a queue. Downmix and resample happen on the consumer thread, where a
-    stall costs latency instead of dropped frames.
+    A source pushes blocks of interleaved float32 at its own rate and channel
+    count; what comes out the other side is mono 16 kHz, each block stamped
+    with the time it was captured, in a queue that is bounded in seconds.
+    LoopbackCapture feeds it from the default output device and
+    appaudio.ProcessCapture from one application, and the pipeline reads
+    either through the same five methods without knowing which it has.
+
+    A source must call _set_format() before the first block in a new format,
+    _push() for each block, and on the way out _stop_converter() and then
+    _close_output().
     """
 
     def __init__(
         self,
         frames_per_buffer: int = 1024,
-        device_index: int | None = None,
         max_queue_sec: float = 15.0,
         on_event: Callable[[str, str], None] | None = None,
-        watch_device: bool = True,
     ):
         self.frames_per_buffer = frames_per_buffer
-        self.device_index = device_index
         self.max_queue_sec = max_queue_sec
-        # (kind, message): "changed" when the default device moved and capture
-        # followed it, "lost" when it could not be reopened, "restored" when a
-        # lost device came back.
+        # (kind, message), called from the source's watcher thread.
         self.on_event = on_event or (lambda _kind, _msg: None)
-        self.watch_device = watch_device and device_index is None
 
-        self._pa: pyaudio.PyAudio | None = None
-        self._stream = None
         self._raw: queue.Queue = queue.Queue(maxsize=256)
         self._out: deque[Block] = deque()
         self._out_samples = 0
         self._cond = threading.Condition()
         self._closed = False
         self._worker: threading.Thread | None = None
-        self._watcher: threading.Thread | None = None
         self._stop = threading.Event()
-        self._device_lock = threading.Lock()
-        self._endpoint_id: str | None = None
-        self._lost = False
 
         self.device_name = ""
         self.native_rate = 0
         self.channels = 0
-        # Callback blocks dropped because the converter was starved.
+        # Source blocks dropped because the converter was starved.
         self.dropped_blocks = 0
         # Converted audio discarded because the consumer fell too far behind.
         self.dropped_sec = 0.0
         self.reopens = 0
 
-    # -- lifecycle ---------------------------------------------------------
+    # -- for the source ----------------------------------------------------
 
-    def start(self) -> None:
-        self._open()
+    def _start_converter(self) -> None:
         self._worker = threading.Thread(
             target=self._convert_loop, name="audio-convert", daemon=True
         )
         self._worker.start()
-        if self.watch_device:
-            self._endpoint_id = default_output_id()
-            self._watcher = threading.Thread(
-                target=self._watch_loop, name="audio-watch", daemon=True
-            )
-            self._watcher.start()
 
-    def _open(self) -> None:
-        """Open the loopback stream on the current default device."""
-        with self._device_lock:
-            self._pa = pyaudio.PyAudio()
-            try:
-                if self.device_index is None:
-                    info = find_default_loopback(self._pa)
-                else:
-                    info = self._pa.get_device_info_by_index(self.device_index)
-                    if not info.get("isLoopbackDevice"):
-                        raise AudioDeviceError(
-                            f"device {self.device_index} is not a loopback device"
-                        )
-
-                self.device_name = str(info["name"])
-                self.native_rate = int(info["defaultSampleRate"])
-                self.channels = int(info["maxInputChannels"])
-                log.info(
-                    "capturing %r  %d Hz  %d ch",
-                    self.device_name,
-                    self.native_rate,
-                    self.channels,
-                )
-                # Tell the converter the format before any audio in it arrives.
-                self._raw.put(("format", self.native_rate, self.channels))
-                self._stream = self._pa.open(
-                    format=pyaudio.paFloat32,
-                    channels=self.channels,
-                    rate=self.native_rate,
-                    input=True,
-                    input_device_index=int(info["index"]),
-                    frames_per_buffer=self.frames_per_buffer,
-                    stream_callback=self._callback,
-                )
-                self._stream.start_stream()
-            except Exception as exc:
-                self._close_device()
-                if isinstance(exc, AudioDeviceError):
-                    raise
-                raise AudioDeviceError(f"could not open the audio device: {exc}") from exc
-
-    def _close_device(self) -> None:
-        if self._stream is not None:
-            try:
-                self._stream.stop_stream()
-                self._stream.close()
-            except OSError as exc:  # stream may already be dead after a device change
-                log.debug("error closing stream: %s", exc)
-            self._stream = None
-        if self._pa is not None:
-            try:
-                self._pa.terminate()
-            except OSError as exc:
-                log.debug("error terminating PortAudio: %s", exc)
-            self._pa = None
-
-    def stop(self) -> None:
-        self._stop.set()
-        with self._device_lock:
-            self._close_device()
-        # Unblock the converter, then the consumer.
+    def _stop_converter(self) -> None:
         try:
             self._raw.put_nowait(None)
         except queue.Full:
@@ -278,12 +210,31 @@ class LoopbackCapture:
         if self._worker is not None:
             self._worker.join(timeout=2.0)
             self._worker = None
-        if self._watcher is not None:
-            self._watcher.join(timeout=2.0)
-            self._watcher = None
+
+    def _close_output(self) -> None:
+        """Let a consumer blocked in read() or read_all() see the end."""
         with self._cond:
             self._closed = True
             self._cond.notify_all()
+
+    def _set_format(self, rate: int, channels: int) -> None:
+        """Tell the converter the format before any audio in it arrives."""
+        self._raw.put(("format", rate, channels))
+
+    def _push(self, stamp: float, data) -> None:
+        """Hand over one block of interleaved float32, captured at `stamp`.
+
+        Never blocks: this is called from whatever thread the device delivers
+        on, which cannot be made to wait.
+        """
+        try:
+            self._raw.put_nowait((stamp, data))
+        except queue.Full:
+            # Converter is starved of CPU. Dropping is better than growing an
+            # unbounded backlog behind a live stream.
+            self.dropped_blocks += 1
+            if self.dropped_blocks % 50 == 1:
+                log.warning("audio backlog full, dropped %d blocks", self.dropped_blocks)
 
     # -- data --------------------------------------------------------------
 
@@ -333,19 +284,6 @@ class LoopbackCapture:
 
     # -- internals ---------------------------------------------------------
 
-    def _callback(self, in_data, frame_count, time_info, status):  # noqa: ARG002
-        if status:
-            log.debug("stream status flags: %s", status)
-        try:
-            self._raw.put_nowait((time.perf_counter(), in_data))
-        except queue.Full:
-            # Converter is starved of CPU. Dropping is better than growing an
-            # unbounded backlog behind a live stream.
-            self.dropped_blocks += 1
-            if self.dropped_blocks % 50 == 1:
-                log.warning("audio backlog full, dropped %d blocks", self.dropped_blocks)
-        return (None, pyaudio.paContinue)
-
     def _convert_loop(self) -> None:
         resampler = None
         channels = 1
@@ -387,6 +325,123 @@ class LoopbackCapture:
                     self._out_samples -= old.size
                     self.dropped_sec += old.size / SAMPLE_RATE
                 self._cond.notify()
+
+
+class LoopbackCapture(CaptureBase):
+    """Captures system audio into a queue of mono 16 kHz float32 blocks.
+
+    The PyAudio callback runs on a realtime-ish thread, so it only copies bytes
+    into a queue. Downmix and resample happen on the consumer thread, where a
+    stall costs latency instead of dropped frames.
+    """
+
+    def __init__(
+        self,
+        frames_per_buffer: int = 1024,
+        device_index: int | None = None,
+        max_queue_sec: float = 15.0,
+        on_event: Callable[[str, str], None] | None = None,
+        watch_device: bool = True,
+    ):
+        # on_event kinds: "changed" when the default device moved and capture
+        # followed it, "lost" when it could not be reopened, "restored" when a
+        # lost device came back.
+        super().__init__(frames_per_buffer, max_queue_sec, on_event)
+        self.device_index = device_index
+        self.watch_device = watch_device and device_index is None
+
+        self._pa: pyaudio.PyAudio | None = None
+        self._stream = None
+        self._watcher: threading.Thread | None = None
+        self._device_lock = threading.Lock()
+        self._endpoint_id: str | None = None
+        self._lost = False
+
+    # -- lifecycle ---------------------------------------------------------
+
+    def start(self) -> None:
+        self._open()
+        self._start_converter()
+        if self.watch_device:
+            self._endpoint_id = default_output_id()
+            self._watcher = threading.Thread(
+                target=self._watch_loop, name="audio-watch", daemon=True
+            )
+            self._watcher.start()
+
+    def _open(self) -> None:
+        """Open the loopback stream on the current default device."""
+        with self._device_lock:
+            self._pa = pyaudio.PyAudio()
+            try:
+                if self.device_index is None:
+                    info = find_default_loopback(self._pa)
+                else:
+                    info = self._pa.get_device_info_by_index(self.device_index)
+                    if not info.get("isLoopbackDevice"):
+                        raise AudioDeviceError(
+                            f"device {self.device_index} is not a loopback device"
+                        )
+
+                self.device_name = str(info["name"])
+                self.native_rate = int(info["defaultSampleRate"])
+                self.channels = int(info["maxInputChannels"])
+                log.info(
+                    "capturing %r  %d Hz  %d ch",
+                    self.device_name,
+                    self.native_rate,
+                    self.channels,
+                )
+                self._set_format(self.native_rate, self.channels)
+                self._stream = self._pa.open(
+                    format=pyaudio.paFloat32,
+                    channels=self.channels,
+                    rate=self.native_rate,
+                    input=True,
+                    input_device_index=int(info["index"]),
+                    frames_per_buffer=self.frames_per_buffer,
+                    stream_callback=self._callback,
+                )
+                self._stream.start_stream()
+            except Exception as exc:
+                self._close_device()
+                if isinstance(exc, AudioDeviceError):
+                    raise
+                raise AudioDeviceError(f"could not open the audio device: {exc}") from exc
+
+    def _close_device(self) -> None:
+        if self._stream is not None:
+            try:
+                self._stream.stop_stream()
+                self._stream.close()
+            except OSError as exc:  # stream may already be dead after a device change
+                log.debug("error closing stream: %s", exc)
+            self._stream = None
+        if self._pa is not None:
+            try:
+                self._pa.terminate()
+            except OSError as exc:
+                log.debug("error terminating PortAudio: %s", exc)
+            self._pa = None
+
+    def stop(self) -> None:
+        self._stop.set()
+        with self._device_lock:
+            self._close_device()
+        # Unblock the converter, then the consumer.
+        self._stop_converter()
+        if self._watcher is not None:
+            self._watcher.join(timeout=2.0)
+            self._watcher = None
+        self._close_output()
+
+    # -- internals ---------------------------------------------------------
+
+    def _callback(self, in_data, frame_count, time_info, status):  # noqa: ARG002
+        if status:
+            log.debug("stream status flags: %s", status)
+        self._push(time.perf_counter(), in_data)
+        return (None, pyaudio.paContinue)
 
     def _watch_loop(self) -> None:
         """Follow the default output device when Windows changes it."""

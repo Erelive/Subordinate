@@ -31,6 +31,10 @@ class Entry:
     final: bool = True
     engine: str = ""
     latency: float | None = None
+    # Corrected by the second look, and what it said before that.
+    revised: bool = False
+    first_source: str = ""
+    first_english: str = ""
 
     @property
     def clock(self) -> str:
@@ -76,6 +80,7 @@ class History:
         A final line is never changed by a later update. The pipeline does
         not send one, but the transcript is where "finished text is not
         rewritten" is a promise to the reader, so it is enforced here too.
+        The one exception has its own door: see revise.
         """
         existing = self._index.get(utterance.id)
         if existing is not None:
@@ -108,6 +113,24 @@ class History:
             self._index.pop(old.id, None)
             dropped += 1
         return len(self.entries) - 1, True, dropped
+
+    def revise(self, utterance) -> int | None:
+        """Apply a second-look correction to a finished line. Returns its row.
+
+        Once per line, and only to a line that is final: a correction to a
+        draft is just the draft's next version, and a second correction
+        would make the transcript something that keeps moving. None if the
+        line is not here any more or does not qualify.
+        """
+        entry = self._index.get(utterance.id)
+        if entry is None or not entry.final or entry.revised:
+            return None
+        entry.first_source, entry.first_english = entry.source, entry.english
+        entry.source = utterance.source
+        entry.english = utterance.english
+        entry.engine = utterance.engine or entry.engine
+        entry.revised = True
+        return self.entries.index(entry)
 
     def clear(self) -> None:
         self.entries.clear()

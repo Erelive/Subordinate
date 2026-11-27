@@ -118,6 +118,10 @@ class ModelCache:
         self._llm_seen.add((cfg.llm_endpoint, cfg.llm_model))
         return translator
 
+    def note_llm(self, endpoint: str, model: str) -> None:
+        """Remember an Ollama model something else loaded, for release()."""
+        self._llm_seen.add((endpoint, model))
+
     # -- VAD ---------------------------------------------------------------
 
     def vad(self, cfg: Config):
